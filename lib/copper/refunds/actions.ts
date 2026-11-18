@@ -17,6 +17,12 @@ import {
   recentEvaluations,
 } from "@/lib/copper/refunds/evaluator-store";
 import {
+  acceptSuggestion,
+  ignoreSuggestion,
+  type LearningData,
+  learningData,
+} from "@/lib/copper/refunds/learning";
+import {
   type Account,
   chatUpdates,
   type ChatUpdate,
@@ -108,4 +114,21 @@ export async function runEvaluatorNow(): Promise<EvaluatorRun> {
 
 export async function getEvaluations(): Promise<EvaluationRow[]> {
   return recentEvaluations();
+}
+
+// ---------- Stage 2: the learning loop ----------
+
+const reviewerName = z.string().trim().min(1).max(60);
+
+export async function getLearning(): Promise<LearningData> {
+  return learningData();
+}
+
+/** Only a click on Accept, with the reviewer's name, changes a limit. */
+export async function acceptLimitSuggestion(key: string, byName: string) {
+  return acceptSuggestion(z.string().parse(key), reviewerName.parse(byName));
+}
+
+export async function ignoreLimitSuggestion(key: string, byName: string) {
+  return ignoreSuggestion(z.string().parse(key), reviewerName.parse(byName));
 }

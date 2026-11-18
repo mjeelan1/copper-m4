@@ -313,19 +313,22 @@ describe.skipIf(!ready)("Stage 2 against Supabase", () => {
         name: "Sample customer (sample)",
       });
     }
-    // Maya, Jordan and Priya still have exactly their own six orders each.
-    for (const [account, prefix] of [
-      ["acct-maya", "M"],
-      ["acct-jordan", "J"],
-      ["acct-priya", "P"],
-    ]) {
+    // Maya, Jordan and Priya still have exactly their own orders: six each,
+    // plus Maya's two demo orders (…_maya_demo_orders.sql).
+    for (const [account, prefix, extra] of [
+      ["acct-maya", "M", [1007, 1008]],
+      ["acct-jordan", "J", []],
+      ["acct-priya", "P", []],
+    ] as const) {
       const { data: orders } = await db
         .from("orders")
         .select("id")
         .eq("account_id", account)
         .order("id");
       expect(orders!.map((o) => o.id)).toEqual(
-        [1001, 1002, 1003, 1004, 1005, 1006].map((n) => `${prefix}-${n}`),
+        [1001, 1002, 1003, 1004, 1005, 1006, ...extra].map(
+          (n) => `${prefix}-${n}`,
+        ),
       );
       const { data: wrong } = await db
         .from("refund_cases")

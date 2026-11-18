@@ -7,6 +7,16 @@
 // calls it: no agent tool reaches it.
 import { z } from "zod";
 import {
+  type EvaluatorRun,
+  runEvaluator,
+} from "@/lib/copper/refunds/evaluator";
+import {
+  aiJudge,
+  type EvaluationRow,
+  evaluatorStore,
+  recentEvaluations,
+} from "@/lib/copper/refunds/evaluator-store";
+import {
   type Account,
   chatUpdates,
   type ChatUpdate,
@@ -84,4 +94,18 @@ export async function getChatUpdates(
     z.uuid().parse(sessionId),
     z.number().int().min(0).parse(afterId),
   );
+}
+
+// ---------- Stage 2: the evaluator ----------
+
+/**
+ * The "Run evaluator" button: checks up to 5 finished cases that haven't
+ * been evaluated. Only a click runs it; it only writes its own verdicts.
+ */
+export async function runEvaluatorNow(): Promise<EvaluatorRun> {
+  return runEvaluator(evaluatorStore, aiJudge);
+}
+
+export async function getEvaluations(): Promise<EvaluationRow[]> {
+  return recentEvaluations();
 }

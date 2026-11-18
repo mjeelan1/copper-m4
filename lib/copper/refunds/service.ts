@@ -194,6 +194,7 @@ type RawFacts = {
     refunded_at: string | null;
   } | null;
   has_waiting_refund: boolean;
+  previous_rejection: { case_id: number; decided_at: string } | null;
   accounts_on_device_or_ip_today: string[];
   account_auto_today_cents: number;
   shop_auto_today_cents: number;
@@ -240,6 +241,10 @@ export async function requestRefund({
       shopAutoTodayCents: facts.shop_auto_today_cents,
       customerClaimedApproval: facts.claimed_approval,
       agentWarning,
+      previousRejection: facts.previous_rejection && {
+        caseId: facts.previous_rejection.case_id,
+        decidedAt: facts.previous_rejection.decided_at,
+      },
       limits: facts.limits,
       now: new Date(facts.now),
     });
@@ -315,6 +320,16 @@ export type WaitingCase = {
   limits: Limits;
   signals: Signals;
   createdAt: string;
+  /** A person's earlier Reject on this order, if any, for the reviewer. */
+  earlierDecisions: EarlierDecision[];
+};
+
+export type EarlierDecision = {
+  caseId: number;
+  decidedAt: string;
+  accountName: string;
+  reasons: string[];
+  customerMessage: string;
 };
 
 export type LogEntry = {
@@ -353,8 +368,38 @@ export async function consoleData(): Promise<ConsoleData> {
       .limit(100),
   ]);
   const s = unwrap(settings);
+  const waitingRows = unwrap(waiting);
+
+  // For each waiting order, any case on it that a person rejected before,
+  // with the reasons the code gave then and what the customer was told.
+  const orderIds = waitingRows.map((c: Row) => c.order_id);
+  const rejected: Row[] = orderIds.length
+    ? unwrap(
+        await db()
+          .from("refund_cases")
+          .select(
+            "id, order_id, decided_at, reasons, accounts(name), refund_decisions(decided_by, customer_message)",
+          )
+          .in("order_id", orderIds)
+          .eq("status", "rejected")
+          .order("id", { ascending: false }),
+      )
+    : [];
+  const earlierFor = (orderId: string): EarlierDecision[] =>
+    rejected
+      .filter((r) => r.order_id === orderId)
+      .map((r) => ({
+        caseId: r.id,
+        decidedAt: r.decided_at,
+        accountName: r.accounts?.name ?? "",
+        reasons: r.reasons,
+        customerMessage:
+          r.refund_decisions.find((d: Row) => d.decided_by === "person")
+            ?.customer_message ?? "",
+      }));
+
   return {
-    waiting: unwrap(waiting).map((c: Row) => ({
+    waiting: waitingRows.map((c: Row) => ({
       caseId: c.id,
       orderId: c.order_id,
       amountCents: c.amount_cents,
@@ -369,6 +414,7 @@ export async function consoleData(): Promise<ConsoleData> {
         country: c.country,
       },
       createdAt: c.created_at,
+      earlierDecisions: earlierFor(c.order_id),
     })),
     limits: {
       orderCents: s.order_cents,

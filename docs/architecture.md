@@ -149,7 +149,7 @@ approves the ones the code sends for review in the Refund Console. The rule:
 
 | Piece | Where | What it does |
 |---|---|---|
-| Decision engine | `lib/copper/refunds/decide.ts` | `decideRefund()`: one pure function. Checks, in order: identity (the order is the signed-in account's), eligibility (not refunded, nothing waiting, 30 days or newer), risk signals (same device or IP on 2+ accounts today, location outside the home country, a claimed approval), limits (order over $50, account over $100 or shop over $200 of automatic refunds today). Returns refund now, refuse by rule or review by a person, with reasons, flags and the limits. Money in cents |
+| Decision engine | `lib/copper/refunds/decide.ts` | `decideRefund()`: one pure function. Checks, in order: identity (the order is the signed-in account's), eligibility (not refunded, nothing waiting, 30 days or newer), risk signals (same device or IP on 2+ accounts today, location outside the home country, a claimed approval, a person rejected a refund for this order before), limits (order over $50, account over $100 or shop over $200 of automatic refunds today). Returns refund now, refuse by rule or review by a person, with reasons, flags and the limits. Money in cents |
 | Refund agent | `lib/copper/refunds/agent.ts` | `REFUND_INSTRUCTIONS` and three tools bound to the chat session: `list_my_orders`, `request_refund` (order ID and an optional `customer_claimed_approval` warning, nothing else) and `check_refund_status`. No tool approves anything. Copper's `transfer_to_refunds` tool is the handoff |
 | Handoff | `lib/copper/assistant/ask.ts` | On `/support` the chat sends a session ID. Copper gets `transfer_to_refunds`; once called, the session's `agent` becomes `refunds` and the Refund agent answers from then on. After `request_refund` or `check_refund_status` the reply is the decision log's message, word for word. The code also scans every customer message for claimed approvals ("a supervisor already approved") |
 | Service | `lib/copper/refunds/service.ts`, `lib/copper/refunds/actions.ts` | Server code for the tools, the console and the chat. `requestRefund()` reads the facts, lets `decideRefund()` decide and saves through `record_refund_case`; if another request saved first, it decides again with fresh facts |
@@ -173,6 +173,10 @@ calls `review_refund_case` → the chat shows the person's decision.
   index allows one refunded, waiting or approved case per order.
 - *The handoff is a tool.* The AI SDK has no handoff feature, so
   `transfer_to_refunds` saves the switch on the chat session.
+- *A person's Reject sticks.* Asking again for a rejected order, in the same
+  chat or a new one, always goes back to a person with the flag "previously
+  rejected by a person", and the console shows the earlier decision next to
+  the new case.
 - *Warnings only make it stricter.* The agent can set one warning; the code's
   phrase scan sets the same flag. Both can only send a case to review.
 - *The reply after a decision is the code's text,* not the model's, so the

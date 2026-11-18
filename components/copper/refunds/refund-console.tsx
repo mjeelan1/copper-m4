@@ -225,6 +225,26 @@ function WaitingReviews({
                   <TableCell>{c.accountName}</TableCell>
                   <TableCell className="max-w-64 text-xs whitespace-normal">
                     <Reasons reasons={c.reasons} />
+                    {c.earlierDecisions.map((earlier) => (
+                      <div
+                        key={earlier.caseId}
+                        data-testid="earlier-decision"
+                        className="bg-muted mt-2 rounded-md p-2"
+                      >
+                        <p className="font-semibold">
+                          Earlier decision: case {earlier.caseId}, rejected by a
+                          person on{" "}
+                          {new Date(earlier.decidedAt).toLocaleString()}
+                        </p>
+                        <p className="text-muted-foreground">
+                          The code sent it to review because:{" "}
+                          {earlier.reasons.join(" ")}
+                        </p>
+                        <p className="text-muted-foreground">
+                          The customer was told: {earlier.customerMessage}
+                        </p>
+                      </div>
+                    ))}
                   </TableCell>
                   <TableCell className="max-w-48 whitespace-normal">
                     <Flags flags={c.flags} />

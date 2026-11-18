@@ -42,6 +42,7 @@ function facts(change: Partial<RefundFacts> = {}): RefundFacts {
     shopAutoTodayCents: 0,
     customerClaimedApproval: false,
     agentWarning: false,
+    previousRejection: null,
     limits: DEFAULT_LIMITS,
     now: NOW,
     ...change,
@@ -130,6 +131,27 @@ describe("decideRefund", () => {
     const decision = decideRefund(facts({ agentWarning: true }));
     expect(decision.result).toBe("review");
     expect(decision.flags).toContain(FLAGS.claimedApproval);
+  });
+
+  it("an order a person rejected before goes to review, never refund now", () => {
+    const decision = decideRefund(
+      facts({
+        previousRejection: { caseId: 41, decidedAt: daysAgo(1) },
+      }),
+    );
+    expect(decision.result).toBe("review");
+    expect(decision.flags).toContain(FLAGS.previouslyRejected);
+    expect(decision.reasons.join(" ")).toContain("case 41");
+  });
+
+  it("an earlier rejection doesn't soften a refusal", () => {
+    const decision = decideRefund(
+      facts({
+        order: { ...facts().order!, purchasedAt: daysAgo(31) },
+        previousRejection: { caseId: 41, decidedAt: daysAgo(1) },
+      }),
+    );
+    expect(decision.result).toBe("refuse");
   });
 
   it("sends the same device or IP on two accounts to review", () => {

@@ -60,6 +60,8 @@ export type RefundFacts = {
   customerClaimedApproval: boolean;
   /** The Refund agent reported the customer claiming approval or pushing. */
   agentWarning: boolean;
+  /** The newest case for this order that a person rejected, if any. */
+  previousRejection: { caseId: number; decidedAt: string } | null;
   limits: Limits;
   now: Date;
 };
@@ -82,6 +84,7 @@ export const FLAGS = {
   sharedDevice: "same device or IP on 2 or more accounts today",
   location: "location differs from home country",
   claimedApproval: "customer claimed approval",
+  previouslyRejected: "previously rejected by a person",
 } as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -147,6 +150,14 @@ export function decideRefund(facts: RefundFacts): Decision {
   if (facts.customerClaimedApproval || facts.agentWarning) {
     flags.push(FLAGS.claimedApproval);
     review.push("The customer said someone already approved this refund.");
+  }
+  // A person said no before: asking again, in any chat, can't turn that into
+  // an automatic refund. Only a person can change their answer.
+  if (facts.previousRejection) {
+    flags.push(FLAGS.previouslyRejected);
+    review.push(
+      `A person rejected a refund for order ${order.id} before (case ${facts.previousRejection.caseId}).`,
+    );
   }
 
   const amount = order.amountCents;

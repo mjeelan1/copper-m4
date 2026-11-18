@@ -33,6 +33,8 @@ const ORDERS: Record<string, [account: string, cents: number, days: number]> = {
   WAIT: [ACCOUNT.a, 14900, 2],
   CLICK: [ACCOUNT.a, 14900, 2],
   REJECT: [ACCOUNT.a, 14900, 2],
+  REJNEW: [ACCOUNT.a, 799, 2],
+  REJSAME: [ACCOUNT.a, 799, 2],
   B1: [ACCOUNT.b, 3000, 1],
   B2: [ACCOUNT.b, 3000, 1],
   B3: [ACCOUNT.b, 3000, 1],
@@ -430,5 +432,81 @@ describe.skipIf(!ready)("Refunds against Supabase (try to break it)", () => {
     });
     expect(again.result).toBe("refuse");
     expect((await caseRow(caseId)).status).toBe("waiting");
+  });
+  it("reject, then ask plainly in a new chat: review, never refund now", async () => {
+    // High daily limits, so nothing but the earlier Reject can hold it back.
+    await setLimits(50, 1_000_000, 1_000_000);
+    // First chat: a claimed approval sends it to a person, who rejects it.
+    const first = await service.startSession(ACCOUNT.a, signals());
+    await service.noteClaimedApproval(first);
+    const before = await service.requestRefund({
+      sessionId: first,
+      orderId: order("REJNEW"),
+    });
+    expect(before.result).toBe("review");
+    expect((await service.reviewCase(before.caseId, "reject")).changed).toBe(
+      true,
+    );
+
+    // A new chat, no claim, nothing else wrong: still a person's call.
+    const second = await service.startSession(ACCOUNT.a, signals());
+    const again = await service.requestRefund({
+      sessionId: second,
+      orderId: order("REJNEW"),
+    });
+    expect(again.result).toBe("review");
+    const row = await caseRow(again.caseId);
+    // The earlier Reject is the only reason it waits for a person.
+    expect(row.flags).toEqual(["previously rejected by a person"]);
+    expect(row.reasons).toEqual([
+      `A person rejected a refund for order ${order("REJNEW")} before (case ${before.caseId}).`,
+    ]);
+
+    // The console shows the earlier decision next to the new case.
+    const { waiting } = await service.consoleData();
+    const shown = waiting.find((c) => c.caseId === again.caseId)!;
+    expect(shown.earlierDecisions).toEqual([
+      expect.objectContaining({
+        caseId: before.caseId,
+        reasons: ["The customer said someone already approved this refund."],
+        customerMessage: expect.stringContaining("turned it down"),
+      }),
+    ]);
+  });
+
+  it("reject, then ask again in the same chat: review, never refund now", async () => {
+    await setLimits(50, 1_000_000, 1_000_000);
+    // Away from home: the location sends it to a person, who rejects it.
+    const session = await service.startSession(ACCOUNT.a, signals("RO"));
+    const before = await service.requestRefund({
+      sessionId: session,
+      orderId: order("REJSAME"),
+    });
+    expect(before.result).toBe("review");
+    expect((await service.reviewCase(before.caseId, "reject")).changed).toBe(
+      true,
+    );
+    expect(
+      (await service.chatUpdates(session, 0)).map((u) => u.message),
+    ).toEqual([expect.stringContaining("turned it down")]);
+
+    // Back home, same chat, asking again: the rejection alone keeps it with a person.
+    await service.updateSignals(session, { ...signals(), country: "US" });
+    const again = await service.requestRefund({
+      sessionId: session,
+      orderId: order("REJSAME"),
+    });
+    expect(again.result).toBe("review");
+    const row = await caseRow(again.caseId);
+    expect(row.flags).toEqual(["previously rejected by a person"]);
+    expect(row.reasons).toEqual([
+      `A person rejected a refund for order ${order("REJSAME")} before (case ${before.caseId}).`,
+    ]);
+    const { data: o } = await db
+      .from("orders")
+      .select("refunded_at")
+      .eq("id", order("REJSAME"))
+      .single();
+    expect(o!.refunded_at).toBeNull();
   });
 });

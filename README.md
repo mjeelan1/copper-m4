@@ -27,11 +27,14 @@ Or open the repo in **GitHub Codespaces**: it installs everything and starts the
 
 ## Environment variables
 
-There is one, and it's optional until a module needs it. Put it in `.env.local` (never commit it) and in your Vercel project settings.
+Each is optional until a module needs it. Put them in `.env.local` (never commit it) and in your Vercel project settings.
 
-| Variable                       | Used for                        | Where to find it                                                              |
-| ------------------------------ | ------------------------------- | ----------------------------------------------------------------------------- |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | All AI calls (`lib/ai/call.ts`) | [Google AI Studio](https://aistudio.google.com) > Get API key (free, no card) |
+| Variable                       | Used for                                                 | Where to find it                                                              |
+| ------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | All AI calls (`lib/ai/call.ts`)                          | [Google AI Studio](https://aistudio.google.com) > Get API key (free, no card) |
+| `AI_MODEL`                     | Optional: `google/gemini-3-flash` instead of the default | Only if your key can't use the default model                                  |
+| `SUPABASE_URL`                 | Refunds (Module 4), server only                          | Supabase > your project > Project Settings > API                              |
+| `SUPABASE_SECRET_KEY`          | Refunds (Module 4), server only. Never `NEXT_PUBLIC_`    | Supabase > Project Settings > API Keys > Secret keys                          |
 
 ## Commands
 

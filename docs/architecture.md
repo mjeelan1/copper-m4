@@ -139,3 +139,51 @@ second agent, and a person approving the large ones.
 |---|---|---|
 | Page | `app/support/page.tsx` | The "Refund Console" title and nothing else yet, linked from the header as Support |
 | Chat panel | `components/copper/ask-copper.tsx` | With the `docked` prop it starts open and the page beside it stays clickable. It is the same single agent and tools as on the home page |
+
+## Module 4: Refunds (stage 1)
+
+**Summary:** Customers ask for refunds in Ask Copper on `/support`. Copper
+hands the chat to a Refund agent, code decides each request, and a person
+approves the ones the code sends for review in the Refund Console. The rule:
+**agents talk, code decides, people approve.**
+
+| Piece | Where | What it does |
+|---|---|---|
+| Decision engine | `lib/copper/refunds/decide.ts` | `decideRefund()`: one pure function. Checks, in order: identity (the order is the signed-in account's), eligibility (not refunded, nothing waiting, 30 days or newer), risk signals (same device or IP on 2+ accounts today, location outside the home country, a claimed approval), limits (order over $50, account over $100 or shop over $200 of automatic refunds today). Returns refund now, refuse by rule or review by a person, with reasons, flags and the limits. Money in cents |
+| Refund agent | `lib/copper/refunds/agent.ts` | `REFUND_INSTRUCTIONS` and three tools bound to the chat session: `list_my_orders`, `request_refund` (order ID and an optional `customer_claimed_approval` warning, nothing else) and `check_refund_status`. No tool approves anything. Copper's `transfer_to_refunds` tool is the handoff |
+| Handoff | `lib/copper/assistant/ask.ts` | On `/support` the chat sends a session ID. Copper gets `transfer_to_refunds`; once called, the session's `agent` becomes `refunds` and the Refund agent answers from then on. After `request_refund` or `check_refund_status` the reply is the decision log's message, word for word. The code also scans every customer message for claimed approvals ("a supervisor already approved") |
+| Service | `lib/copper/refunds/service.ts`, `lib/copper/refunds/actions.ts` | Server code for the tools, the console and the chat. `requestRefund()` reads the facts, lets `decideRefund()` decide and saves through `record_refund_case`; if another request saved first, it decides again with fresh facts |
+| Database | `supabase/migrations/2026111700000*_refunds_*.sql`, project "class examples" | `accounts`, `orders`, `chat_sessions` (made-up IP, device, browser, country), `refund_settings`, `refund_cases`, `refund_decisions` (the log). Row level security on with no policies; the SQL functions run for the service role only |
+| Console | `components/copper/refunds/refund-console.tsx`, `app/support/page.tsx` | Waiting reviews (Approve / Reject), Customer simulator, Settings (the three limits) and Decision log. Refreshes every 3 seconds |
+| Chat | `components/copper/ask-copper.tsx` | "Signed in as" switcher (a new chat per account), the handoff station, and a person's decisions appearing on their own (polled every 3 seconds) |
+| AI calls | `{ module: 4, feature: "refund-agent" }` | One streamed call per question once the Refund agent has the chat. Copper's handoff call stays `{ module: 2, feature: "ask-copper" }` |
+
+**Data flow:** customer asks for a refund → Copper calls `transfer_to_refunds`
+→ Refund agent calls `request_refund(orderId)` → `refund_facts` (one read) →
+`decideRefund()` → `record_refund_case` (one write, under a lock) → the
+customer sees the log's message. Review cases wait in the console → a click
+calls `review_refund_case` → the chat shows the person's decision.
+
+**Decisions and trade-offs:**
+- *Code decides, the database guards.* All the rules live in one TypeScript
+  function so they can be tested offline. The SQL function only saves: it
+  takes one lock for all refund requests and refuses to save if any case was
+  added after the facts were read (the newest case ID is the "version"), so
+  two requests at the same time can't both pass the daily totals. A unique
+  index allows one refunded, waiting or approved case per order.
+- *The handoff is a tool.* The AI SDK has no handoff feature, so
+  `transfer_to_refunds` saves the switch on the chat session.
+- *Warnings only make it stricter.* The agent can set one warning; the code's
+  phrase scan sets the same flag. Both can only send a case to review.
+- *The reply after a decision is the code's text,* not the model's, so the
+  chat always matches the log.
+- *Limits are saved with each case,* so changing them never releases a
+  waiting refund.
+- *"Today"* is the shop's day in Arizona (America/Phoenix).
+- *Polling, not push:* the chat and console check every 3 seconds. Simple,
+  and fine for a class demo.
+
+**Risks and open questions:** The console has no sign-in: anyone who can
+open `/support` can approve. The "Signed in as" switcher stands in for real
+sign-in, and the simulator's signals are made up. The order dates count back
+from the day the seed ran, so the recent orders pass 30 days in a few weeks.

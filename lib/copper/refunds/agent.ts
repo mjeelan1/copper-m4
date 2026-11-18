@@ -91,14 +91,19 @@ export async function codeReplies({
   sessionId: string;
   customerText: string;
   decidedOrderIds: string[];
-}): Promise<string[]> {
-  const replies: string[] = [];
+}): Promise<{ message: string; caseId?: number }[]> {
+  const replies: { message: string; caseId?: number }[] = [];
   for (const id of orderIdsIn(customerText)) {
     if (decidedOrderIds.includes(id)) continue;
     if (await isMyOrder(sessionId, id))
-      replies.push((await refundStatus(sessionId, id)).message);
-    else
-      replies.push((await requestRefund({ sessionId, orderId: id })).message);
+      replies.push(await refundStatus(sessionId, id));
+    else {
+      const { message, caseId } = await requestRefund({
+        sessionId,
+        orderId: id,
+      });
+      replies.push({ message, caseId });
+    }
   }
   return replies;
 }

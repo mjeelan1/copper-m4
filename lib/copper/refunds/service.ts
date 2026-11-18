@@ -12,6 +12,7 @@ import {
   decideRefund,
   type Limits,
   parseLimits,
+  type RefundFacts,
   type Result,
   type Signals,
 } from "@/lib/copper/refunds/decide";
@@ -240,7 +241,7 @@ export async function requestRefund({
     const facts: RawFacts = unwrap(
       await db().rpc("refund_facts", { p_session: sessionId, p_order: id }),
     );
-    const decision = decideRefund({
+    const engineFacts: RefundFacts = {
       accountId: facts.account_id,
       homeCountry: facts.home_country,
       orderId: id,
@@ -265,7 +266,8 @@ export async function requestRefund({
       },
       limits: facts.limits,
       now: new Date(facts.now),
-    });
+    };
+    const decision = decideRefund(engineFacts);
     const message = customerMessage(
       decision.result,
       { id, amountCents: decision.amountCents },
@@ -283,11 +285,71 @@ export async function requestRefund({
         p_message: message,
       }),
     );
-    if (!saved.conflict)
+    if (!saved.conflict) {
+      // Stage 2: keep the engine's exact input with the case, so the
+      // evaluator can run the engine again on it. It never changes the
+      // decision, and a failure here doesn't undo it.
+      await saveFacts(saved.case_id!, engineFacts);
       return { caseId: saved.case_id!, result: decision.result, message };
+    }
     // Another request saved a case after we read the facts: decide again.
   }
   throw new Error("Too many refund requests at once. Please try again.");
+}
+
+/** The engine's facts as saved with a case: plain JSON, the date as text. */
+export type SavedFacts = Omit<RefundFacts, "now"> & { now: string };
+
+async function saveFacts(caseId: number, facts: RefundFacts) {
+  const saved: SavedFacts = { ...facts, now: facts.now.toISOString() };
+  const { error } = await db().rpc("save_case_facts", {
+    p_case: caseId,
+    p_facts: saved,
+  });
+  if (error) console.error("[refunds] couldn't save the facts:", error.message);
+}
+
+// ---------- What the customer was shown (Stage 2) ----------
+
+export type ChatReply = {
+  caseId: number | null;
+  writtenBy: "code" | "agent";
+  text: string;
+};
+
+/** The newest case in this chat, if any. */
+export async function latestCaseId(sessionId: string): Promise<number | null> {
+  const rows = unwrap(
+    await db()
+      .from("refund_cases")
+      .select("id")
+      .eq("session_id", sessionId)
+      .order("id", { ascending: false })
+      .limit(1),
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Saves what the customer was shown, so the evaluator can compare it with
+ * the decision log. A failure is logged and never breaks the chat.
+ */
+export async function recordChatReplies(
+  sessionId: string,
+  replies: ChatReply[],
+) {
+  if (replies.length === 0) return;
+  const { error } = await db()
+    .from("chat_replies")
+    .insert(
+      replies.map((r) => ({
+        session_id: sessionId,
+        case_id: r.caseId,
+        written_by: r.writtenBy,
+        text: r.text,
+      })),
+    );
+  if (error) console.error("[refunds] couldn't save a reply:", error.message);
 }
 
 /**
@@ -514,11 +576,20 @@ export async function chatUpdates(
   const rows = unwrap(
     await db()
       .from("refund_decisions")
-      .select("id, customer_message, refund_cases!inner(session_id)")
+      .select("id, case_id, customer_message, refund_cases!inner(session_id)")
       .eq("refund_cases.session_id", sessionId)
       .eq("decided_by", "person")
       .gt("id", afterId)
       .order("id"),
+  );
+  // These go to the chat now, word for word: record that the customer saw them.
+  await recordChatReplies(
+    sessionId,
+    rows.map((r: Row) => ({
+      caseId: r.case_id,
+      writtenBy: "code" as const,
+      text: r.customer_message,
+    })),
   );
   return rows.map((r: Row) => ({ id: r.id, message: r.customer_message }));
 }

@@ -88,10 +88,7 @@ function modelStreaming(...steps: StreamPart[][]) {
   });
 }
 
-async function ask(
-  content: string,
-  sessionId: string | null = session.id,
-) {
+async function ask(content: string, sessionId: string | null = session.id) {
   vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "AIza-test-key");
   const { askCopper } = await import("@/lib/copper/assistant/ask");
   return finalValue(

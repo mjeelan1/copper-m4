@@ -7,7 +7,7 @@
 // - Settings: the three limits.
 // - Decision log: every decision, by the code or by a person.
 // It refreshes every few seconds, so new cases show up on their own.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AskCopper } from "@/components/copper/ask-copper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,14 +64,20 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
     }
   }, []);
 
-  // Sign in as the first account and start its chat.
+  // Sign in and start the chat, once. (In development React runs effects
+  // twice, which would start two chat sessions.)
+  const started = useRef(false);
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     void (async () => {
       try {
         const list = await getAccounts();
         setAccounts(list);
-        setAccountId(list[0].id);
-        setSessionId(await startChatSession(list[0].id, START_SIGNALS));
+        // Maya first: the chat's example questions are about her orders.
+        const first = list.find((a) => a.id === "acct-maya") ?? list[0];
+        setAccountId(first.id);
+        setSessionId(await startChatSession(first.id, START_SIGNALS));
       } catch {
         setProblem("Can't reach Supabase right now. Reload to try again.");
       }

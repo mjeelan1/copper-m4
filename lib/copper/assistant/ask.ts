@@ -141,7 +141,12 @@ export async function askCopper({
         .map((s) => (s.output as { message: string }).message);
       if (official.length > 0) progress.reply = official.join("\n\n");
       finish();
-    } catch {
+    } catch (error) {
+      // The customer sees "Sorry"; the reason goes to the terminal.
+      console.error(
+        "[ask-copper]",
+        error instanceof Error ? error.message : String(error),
+      );
       progress.status = "error";
       if (!progress.reply.trim()) progress.reply = SORRY;
       done(snapshot());

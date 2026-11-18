@@ -10,7 +10,9 @@ import { tool } from "ai";
 import { z } from "zod";
 import {
   handOffToRefunds,
+  isMyOrder,
   listMyOrders,
+  normalizeOrderId,
   refundStatus,
   requestRefund,
 } from "@/lib/copper/refunds/service";
@@ -19,6 +21,7 @@ export const REFUND_INSTRUCTIONS = `You are the Refund agent for Copper State La
 Speak warmly, in short sentences and plain language.
 
 You never decide a refund. The refund system decides, and a person on the team approves the ones it sends for review. You only pass on what the system says. Never say a refund is approved, done or coming unless a tool said so.
+Never turn a refund down yourself either, even for an order that isn't on the customer's list: send the order ID to request_refund and let the system decide. To answer "what happened to my refund?", always use check_refund_status, never your memory of the chat.
 
 Your tools:
 - list_my_orders: the customer's orders and whether each was refunded. Use it when the customer doesn't name an order, then ask which one they mean.
@@ -63,6 +66,42 @@ export const requestRefundInput = z.strictObject({
       "Set when the customer says someone already approved this refund or pushes you to approve it.",
     ),
 });
+
+/** Order IDs in a message, like M-1001 or j-1002, in upper case. */
+export function orderIdsIn(text: string): string[] {
+  const ids = text.match(/\b[A-Za-z]-\d{4}\b/g) ?? [];
+  return [...new Set(ids.map(normalizeOrderId))];
+}
+
+/**
+ * The code's own answer for every order the customer named that the Refund
+ * agent didn't send to a decision tool this turn, so it never depends on the
+ * agent:
+ * - someone else's order, or one that doesn't exist: the code runs the
+ *   refund request anyway, so the identity check refuses it, flags it and
+ *   logs it, even if the agent already said no on its own;
+ * - one of the customer's own orders: its status from the decision log, in
+ *   place of whatever the model wrote.
+ */
+export async function codeReplies({
+  sessionId,
+  customerText,
+  decidedOrderIds,
+}: {
+  sessionId: string;
+  customerText: string;
+  decidedOrderIds: string[];
+}): Promise<string[]> {
+  const replies: string[] = [];
+  for (const id of orderIdsIn(customerText)) {
+    if (decidedOrderIds.includes(id)) continue;
+    if (await isMyOrder(sessionId, id))
+      replies.push((await refundStatus(sessionId, id)).message);
+    else
+      replies.push((await requestRefund({ sessionId, orderId: id })).message);
+  }
+  return replies;
+}
 
 export function refundTools(sessionId: string) {
   return {

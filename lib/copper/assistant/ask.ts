@@ -16,6 +16,7 @@ import {
 import type { Progress, ToolStep } from "@/lib/copper/assistant/progress";
 import { copperTools } from "@/lib/copper/assistant/tools";
 import {
+  codeReplies,
   handoffTools,
   REFUND_INSTRUCTIONS,
   refundTools,
@@ -136,9 +137,27 @@ export async function askCopper({
       // After a refund request or a status check, the reply is the code's
       // message, exactly as saved in the decision log, never the model's
       // retelling of it.
-      const official = toolSteps()
-        .filter((s) => DECISION_TOOLS.includes(s.name) && s.state === "done")
-        .map((s) => (s.output as { message: string }).message);
+      const decisions = toolSteps().filter(
+        (s) => DECISION_TOOLS.includes(s.name) && s.state === "done",
+      );
+      const official = decisions.map(
+        (s) => (s.output as { message: string }).message,
+      );
+      // Any other order the customer named gets the code's answer too: a
+      // logged refusal for someone else's order, or the log's status for
+      // their own. So the model never has the last word about an order.
+      official.push(
+        ...(await codeReplies({
+          sessionId: session!.id,
+          customerText:
+            messages.findLast((m) => m.role === "user")?.content ?? "",
+          decidedOrderIds: decisions.map((s) =>
+            String((s.input as { orderId: string }).orderId)
+              .trim()
+              .toUpperCase(),
+          ),
+        })),
+      );
       if (official.length > 0) progress.reply = official.join("\n\n");
       finish();
     } catch (error) {

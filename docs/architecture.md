@@ -179,6 +179,13 @@ calls `review_refund_case` → the chat shows the person's decision.
   the new case.
 - *Warnings only make it stricter.* The agent can set one warning; the code's
   phrase scan sets the same flag. Both can only send a case to review.
+- *The model never has the last word about an order.* For every order ID the
+  customer names that the agent didn't send to a decision tool, the code
+  answers itself: someone else's order (or one that doesn't exist) goes
+  through `requestRefund` anyway, so it is refused, flagged and logged even if
+  the agent already said no; the customer's own order gets its status from
+  the log in place of the model's words (`codeReplies` in
+  `lib/copper/refunds/agent.ts`).
 - *The reply after a decision is the code's text,* not the model's, so the
   chat always matches the log.
 - *Limits are saved with each case,* so changing them never releases a

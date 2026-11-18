@@ -175,6 +175,24 @@ export async function listMyOrders(sessionId: string): Promise<MyOrder[]> {
   }));
 }
 
+/** Whether an order with this ID exists and is the signed-in account's. */
+export async function isMyOrder(
+  sessionId: string,
+  orderId: string,
+): Promise<boolean> {
+  const session = await getSession(sessionId);
+  if (!session) return false;
+  const row = unwrap(
+    await db()
+      .from("orders")
+      .select("id")
+      .eq("id", normalizeOrderId(orderId))
+      .eq("account_id", session.accountId)
+      .maybeSingle(),
+  );
+  return row !== null;
+}
+
 export type RefundOutcome = { caseId: number; result: Result; message: string };
 
 /** The raw facts from the refund_facts SQL function. */

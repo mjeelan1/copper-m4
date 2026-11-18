@@ -133,6 +133,19 @@ describe.skipIf(!ready)("Refunds against Supabase (try to break it)", () => {
       .select("id")
       .in("account_id", accounts);
     const ids = (cases ?? []).map((c) => c.id);
+    // Stage 2 saves what the chat showed and the evaluator's verdicts;
+    // they point at the cases and sessions, so they go first.
+    const { data: sessions } = await db
+      .from("chat_sessions")
+      .select("id")
+      .in("account_id", accounts);
+    const sessionIds = (sessions ?? []).map((s) => s.id);
+    if (sessionIds.length)
+      await db.from("chat_replies").delete().in("session_id", sessionIds);
+    if (ids.length) {
+      await db.from("chat_replies").delete().in("case_id", ids);
+      await db.from("evaluations").delete().in("case_id", ids);
+    }
     if (ids.length)
       await db.from("refund_decisions").delete().in("case_id", ids);
     await db.from("refund_cases").delete().in("account_id", accounts);

@@ -32,13 +32,22 @@ function rows<T>({
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- rows come untyped from Supabase */
-export const evaluatorStore: EvaluatorStore = {
+export const evaluatorStore: EvaluatorStore & {
+  loadCases(ids: number[]): Promise<CaseToEvaluate[]>;
+} = {
   async nextCases(limit) {
-    const cases = rows<any>(
+    const queue = rows<any>(
       await db().rpc("evaluator_next_cases", { p_limit: limit }),
     );
-    if (cases.length === 0) return [];
-    const ids = cases.map((c) => c.id);
+    return this.loadCases(queue.map((c) => c.id));
+  },
+
+  /** Read only: these cases with their decision log and saved replies. */
+  async loadCases(ids) {
+    if (ids.length === 0) return [];
+    const cases = rows<any>(
+      await db().from("refund_cases").select("*").in("id", ids).order("id"),
+    );
     const [decisions, replies] = await Promise.all([
       db()
         .from("refund_decisions")

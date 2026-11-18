@@ -9,6 +9,8 @@
 // It refreshes every few seconds, so new cases show up on their own.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AskCopper } from "@/components/copper/ask-copper";
+import { EvaluatorPanel } from "@/components/copper/refunds/evaluator-panel";
+import { SuggestionsPanel } from "@/components/copper/refunds/suggestions-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,7 +115,16 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
           if (sessionId) await updateChatSignals(sessionId, next);
         }}
       />
-      {data && <Settings limits={data.limits} onSaved={refresh} />}
+      {data && (
+        // Keyed by the limits, so the form shows them again after Accept.
+        <Settings
+          key={JSON.stringify(data.limits)}
+          limits={data.limits}
+          onSaved={refresh}
+        />
+      )}
+      <SuggestionsPanel onChanged={refresh} />
+      <EvaluatorPanel />
       <DecisionLog data={data} />
       <AskCopper
         key={sessionId ?? "starting"}

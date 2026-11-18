@@ -100,7 +100,7 @@ export function EvaluatorPanel() {
                 <TableHead className="w-28">Order</TableHead>
                 <TableHead className="w-16">Result</TableHead>
                 <TableHead>Reason</TableHead>
-                <TableHead className="w-14">AI</TableHead>
+                <TableHead className="w-24">AI check</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -122,7 +122,9 @@ export function EvaluatorPanel() {
                   <TableCell className="whitespace-normal">
                     {e.reason}
                   </TableCell>
-                  <TableCell>{e.aiChecked ? "asked" : "not needed"}</TableCell>
+                  <TableCell className="whitespace-normal">
+                    {e.aiChecked ? "asked" : "not needed"}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

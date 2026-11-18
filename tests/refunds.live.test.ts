@@ -3,6 +3,7 @@
 // refund twice, requests at the same time, a claimed approval, limits at 0,
 // someone else's order, the same device on two accounts, double clicks...
 //
+// Run it with npm run test:live (not part of npm test).
 // Runs only when SUPABASE_URL and SUPABASE_SECRET_KEY are set (.env.local);
 // otherwise it's skipped. It makes its own test accounts and orders (IDs
 // starting with "t-<run>"), uses its own made-up device and IP, puts the

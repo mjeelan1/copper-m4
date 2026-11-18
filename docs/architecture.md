@@ -194,6 +194,15 @@ calls `review_refund_case` → the chat shows the person's decision.
 - *Polling, not push:* the chat and console check every 3 seconds. Simple,
   and fine for a class demo.
 
+**Tests:** `npm test` runs offline: the decision engine, the agents with a
+mock model, and the pages. The tests that use the real Supabase project are
+in `tests/refunds.live.test.ts` and run with `npm run test:live` (one file at
+a time, 30 seconds per test); without the keys they are skipped. They are
+kept out of `npm test` because a request over the internet can be lost: it
+happened once, and the test waited until it timed out. Every Supabase
+request has a 10-second limit (`fetchWithTimeout` in `lib/supabase/server.ts`)
+so a lost request fails clearly instead of hanging, and it is never resent.
+
 **Risks and open questions:** The console has no sign-in: anyone who can
 open `/support` can approve. The "Signed in as" switcher stands in for real
 sign-in, and the simulator's signals are made up. The order dates count back

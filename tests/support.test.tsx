@@ -1,11 +1,18 @@
 // Module 4 starter: the Support page is an empty Refund Console with Ask
 // Copper already open beside it.
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+});
+
+// A page test must never reach the real refund database, even when another
+// test file loaded the keys from .env.local into this worker.
+beforeEach(() => {
+  vi.stubEnv("SUPABASE_URL", "");
+  vi.stubEnv("SUPABASE_SECRET_KEY", "");
 });
 
 describe("Support page", () => {

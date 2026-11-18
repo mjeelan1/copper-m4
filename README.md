@@ -38,15 +38,16 @@ Each is optional until a module needs it. Put them in `.env.local` (never commit
 
 ## Commands
 
-| Command                              | What it does                                          |
-| ------------------------------------ | ----------------------------------------------------- |
-| `npm run dev`                        | Start the dev server                                  |
-| `npm test`                           | Run the app's tests                                   |
-| `npm run lint` / `npm run typecheck` | Check code style and types                            |
-| `npm run format`                     | Format the code with Prettier                         |
-| `npm run start-module`               | One-time setup after cloning a module branch          |
-| `npm run env:check`                  | List the variables in `.env.local`, values masked     |
-| `npm run embed-docs`                 | Re-embed the PDFs in `public/docs/` after they change |
+| Command                              | What it does                                                        |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `npm run dev`                        | Start the dev server                                                |
+| `npm test`                           | Run the app's tests                                                 |
+| `npm run test:live`                  | Run the refund tests against your Supabase project (needs its keys) |
+| `npm run lint` / `npm run typecheck` | Check code style and types                                          |
+| `npm run format`                     | Format the code with Prettier                                       |
+| `npm run start-module`               | One-time setup after cloning a module branch                        |
+| `npm run env:check`                  | List the variables in `.env.local`, values masked                   |
+| `npm run embed-docs`                 | Re-embed the PDFs in `public/docs/` after they change               |
 
 ## AI coding agents
 

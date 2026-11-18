@@ -25,8 +25,8 @@ function facts(change: Partial<RefundFacts> = {}): RefundFacts {
     order: {
       id: "M-1001",
       accountId: "acct-maya",
-      item: "Copper Notes clip",
-      amountCents: 2900,
+      item: "Copper Plus, 3 months ($7.99 a month)",
+      amountCents: 2397,
       purchasedAt: daysAgo(3),
       refundedAt: null,
     },
@@ -55,7 +55,7 @@ describe("decideRefund", () => {
   it("refunds a small, recent order on the right account", () => {
     const decision = decideRefund(facts());
     expect(decision.result).toBe("refund");
-    expect(decision.amountCents).toBe(2900);
+    expect(decision.amountCents).toBe(2397);
     expect(decision.limits).toEqual(DEFAULT_LIMITS);
   });
 
@@ -153,12 +153,12 @@ describe("decideRefund", () => {
   });
 
   it("sends small refunds that add up past the account's daily $100 to review", () => {
-    // $74 already refunded today + $29 = $103.
-    expect(decideRefund(facts({ accountAutoTodayCents: 7400 })).result).toBe(
+    // $76.04 already refunded today + $23.97 = $100.01.
+    expect(decideRefund(facts({ accountAutoTodayCents: 7604 })).result).toBe(
       "review",
     );
-    // $71 + $29 = exactly $100 is still allowed.
-    expect(decideRefund(facts({ accountAutoTodayCents: 7100 })).result).toBe(
+    // $76.03 + $23.97 = exactly $100.00 is still allowed.
+    expect(decideRefund(facts({ accountAutoTodayCents: 7603 })).result).toBe(
       "refund",
     );
   });

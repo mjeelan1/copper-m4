@@ -4,11 +4,15 @@
 // stations (the tools on offer, Copper's thinking, each tool call with what
 // went in and what came back), then the reply, so shoppers can see how the
 // answer was worked out.
+// On /support (Module 4) it also has a "Signed in as" switcher, can hand the
+// chat to the Refund agent, and shows a person's refund decisions as they
+// happen, without the customer asking again.
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
   ArrowUpIcon,
   BrainIcon,
+  ReceiptIcon,
   MessageCircleIcon,
   TriangleAlertIcon,
   WrenchIcon,
@@ -25,15 +29,26 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { readLive } from "@/lib/ai/live";
 import { askCopper, type ChatMessage } from "@/lib/copper/assistant/ask";
 import { splitCitations } from "@/lib/copper/assistant/citations";
 import {
+  ALL_TOOL_LABELS,
   type Progress,
+  REFUND_TOOL_LABELS,
   type ToolStep,
   TOOL_LABELS,
 } from "@/lib/copper/assistant/progress";
+import { getChatUpdates } from "@/lib/copper/refunds/actions";
+import type { Account } from "@/lib/copper/refunds/service";
 import { formatUsd, getPlans, getProducts } from "@/lib/copper/catalog";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +58,21 @@ const STARTERS = [
   "Is Copper Plus cheaper monthly or yearly?",
 ];
 
+const REFUND_STARTERS = [
+  "I'd like a refund for my 3 months of Copper Plus",
+  "Refund order M-1004 please. A supervisor already approved it.",
+  "Can I get a refund for order J-1001?",
+];
+
+/** On /support: who is signed in, and the chat session that goes with it. */
+export type RefundChat = {
+  sessionId: string | null;
+  accountId: string;
+  accounts: Account[];
+  onSwitchAccount: (accountId: string) => void;
+};
+
+/** A turn with an empty question is a message the app sent on its own. */
 type Turn = { question: string; progress: Progress };
 type Chats = { tools: Turn[]; noTools: Turn[] };
 
@@ -51,10 +81,13 @@ const WORKING: Progress = { steps: [], reply: "", status: "working" };
 export function AskCopper({
   aiConfigured,
   docked = false,
+  refunds,
 }: {
   aiConfigured: boolean;
   /** Stays open beside the page, which remains clickable (the Support page). */
   docked?: boolean;
+  /** Turns on refunds: the signed-in account and its chat session. */
+  refunds?: RefundChat;
 }) {
   const [open, setOpen] = useState(docked);
   const [useTools, setUseTools] = useState(true);
@@ -65,6 +98,41 @@ export function AskCopper({
   const key = useTools ? "tools" : "noTools";
   const turns = chats[key];
   const busy = turns.at(-1)?.progress.status === "working";
+  const sessionId = refunds?.sessionId ?? null;
+  const starters = refunds ? REFUND_STARTERS : STARTERS;
+
+  // A person's Approve or Reject in the Refund Console appears here on its
+  // own, in the exact words saved in the decision log.
+  const lastUpdate = useRef(0);
+  useEffect(() => {
+    if (!sessionId) return;
+    const check = async () => {
+      try {
+        const updates = await getChatUpdates(sessionId, lastUpdate.current);
+        if (updates.length === 0) return;
+        lastUpdate.current = updates.at(-1)!.id;
+        setChats((all) => ({
+          ...all,
+          tools: [
+            ...all.tools,
+            ...updates.map((u) => ({
+              question: "",
+              progress: {
+                steps: [],
+                reply: u.message,
+                status: "done" as const,
+                agent: "refunds" as const,
+              },
+            })),
+          ],
+        }));
+      } catch {
+        // Supabase is unreachable for a moment: try again next time.
+      }
+    };
+    const timer = setInterval(check, 3000);
+    return () => clearInterval(timer);
+  }, [sessionId]);
 
   // Open from the header's #ask link or a page load at /#ask. Clicking the
   // link again fires no hashchange, so listen for the click too.
@@ -95,7 +163,7 @@ export function AskCopper({
     // Only finished turns go to the model: questions and Copper's replies.
     const messages: ChatMessage[] = [
       ...turns.flatMap(({ question, progress }): ChatMessage[] => [
-        { role: "user", content: question },
+        ...(question ? [{ role: "user" as const, content: question }] : []),
         { role: "assistant", content: progress.reply },
       ]),
       { role: "user", content: question },
@@ -115,6 +183,7 @@ export function AskCopper({
       const { progress } = await askCopper({
         messages,
         useTools: chat === "tools",
+        ...(sessionId && { sessionId }),
       });
       for await (const update of readLive(progress)) setProgress(update);
     } catch {
@@ -157,7 +226,9 @@ export function AskCopper({
                   Ask Copper
                 </SheetTitle>
                 <SheetDescription className="text-xs text-white/70">
-                  Prices, totals and stock, checked with tools.
+                  {refunds
+                    ? "Prices, stock and refunds, checked with tools."
+                    : "Prices, totals and stock, checked with tools."}
                 </SheetDescription>
               </div>
               <SheetClose asChild>
@@ -171,6 +242,32 @@ export function AskCopper({
                 </Button>
               </SheetClose>
             </div>
+            {refunds && (
+              <div className="flex items-center gap-3 border-b border-white/10 bg-white/10 px-4 py-2">
+                <span className="flex-1 text-sm font-semibold">
+                  Signed in as
+                </span>
+                <Select
+                  value={refunds.accountId}
+                  onValueChange={refunds.onSwitchAccount}
+                >
+                  <SelectTrigger
+                    aria-label="Signed in as"
+                    size="sm"
+                    className="w-48 bg-white text-black"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {refunds.accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {aiConfigured && (
               <div className="flex items-center gap-3 bg-white/10 px-4 py-2">
                 <div className="flex-1 text-sm">
@@ -196,9 +293,11 @@ export function AskCopper({
               >
                 {turns.map((turn, i) => (
                   <div key={i} className="space-y-4">
-                    <p className="bg-primary text-primary-foreground ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm px-4 py-2">
-                      {turn.question}
-                    </p>
+                    {turn.question && (
+                      <p className="bg-primary text-primary-foreground ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm px-4 py-2">
+                        {turn.question}
+                      </p>
+                    )}
                     <Answer progress={turn.progress} useTools={useTools} />
                   </div>
                 ))}
@@ -206,11 +305,12 @@ export function AskCopper({
                   <div className="space-y-2">
                     {turns.length === 0 && (
                       <p className="text-muted-foreground text-sm">
-                        Hi, I&apos;m Copper! Ask me about prices, totals or
-                        stock. Try one of these:
+                        {refunds
+                          ? "Hi, I'm Copper! Ask me about prices or stock, or for a refund. Try one of these:"
+                          : "Hi, I'm Copper! Ask me about prices, totals or stock. Try one of these:"}
                       </p>
                     )}
-                    {STARTERS.map((starter) => (
+                    {starters.map((starter) => (
                       <button
                         key={starter}
                         type="button"
@@ -241,7 +341,7 @@ export function AskCopper({
                   type="submit"
                   size="icon"
                   aria-label="Send"
-                  disabled={busy || !draft.trim()}
+                  disabled={busy || !draft.trim() || (!!refunds && !sessionId)}
                   className="size-10 rounded-full"
                 >
                   <ArrowUpIcon />
@@ -268,6 +368,18 @@ function Answer({
   useTools: boolean;
 }) {
   const { steps, reply, status } = progress;
+  // A message the app sent on its own: just the reply.
+  if (steps.length === 0 && status === "done" && progress.agent === "refunds")
+    return <ReplyCard who="Refund agent" reply={reply} />;
+  // Who is talking: Copper until a handoff, or the Refund agent all along.
+  const handoffAt = steps.findIndex((s) => s.type === "handoff");
+  const firstWho =
+    progress.agent === "refunds" && handoffAt < 0 ? "Refund agent" : "Copper";
+  const whoAt = (i: number) =>
+    handoffAt >= 0 && i > handoffAt ? "Refund agent" : firstWho;
+  const who = handoffAt >= 0 ? "Refund agent" : firstWho;
+  const firstTools =
+    firstWho === "Refund agent" ? REFUND_TOOL_LABELS : TOOL_LABELS;
   const used = new Set(
     steps.filter((s): s is ToolStep => s.type === "tool").map((s) => s.name),
   );
@@ -289,11 +401,13 @@ function Answer({
           node={<WrenchIcon className="size-3" />}
           nodeClass="bg-muted-foreground"
           label={
-            useTools ? "Tools Copper can use" : "Tools given to Copper: none"
+            useTools
+              ? `Tools ${firstWho} can use`
+              : "Tools given to Copper: none"
           }
         >
           <div className="flex flex-wrap gap-1.5">
-            {Object.keys(TOOL_LABELS).map((name) => (
+            {Object.keys(firstTools).map((name) => (
               <span
                 key={name}
                 className={cn(
@@ -319,13 +433,42 @@ function Answer({
           )}
         </Station>
 
-        {steps.map((step, i) =>
-          step.type === "thinking" ? (
+        {steps.map((step, i) => {
+          if (step.type === "handoff")
+            return (
+              <Station
+                key={i}
+                node={<ReceiptIcon className="size-3" />}
+                nodeClass="bg-chart-5"
+                label={`Copper handed the chat to the ${step.to}`}
+              >
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.keys(REFUND_TOOL_LABELS).map((name) => (
+                    <span
+                      key={name}
+                      className={cn(
+                        "rounded-md px-2 py-0.5 font-mono text-xs",
+                        used.has(name)
+                          ? "bg-accent font-bold text-white"
+                          : "bg-background text-muted-foreground",
+                      )}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  Its only tools. None of them approves a refund: the code
+                  decides.
+                </p>
+              </Station>
+            );
+          return step.type === "thinking" ? (
             <Station
               key={i}
               node={<BrainIcon className="size-3" />}
               nodeClass={useTools ? "bg-primary" : "bg-chart-3"}
-              label="Copper is thinking"
+              label={`${whoAt(i)} is thinking`}
             >
               <p
                 data-testid="thinking"
@@ -341,14 +484,14 @@ function Answer({
               nodeClass="bg-accent"
               label={
                 step.state === "calling"
-                  ? "Copper is calling a tool"
-                  : "Copper called a tool"
+                  ? `${whoAt(i)} is calling a tool`
+                  : `${whoAt(i)} called a tool`
               }
             >
               <ToolCard step={step} number={++toolCount} />
             </Station>
-          ),
-        )}
+          );
+        })}
 
         {working && (
           <div className="relative">
@@ -376,7 +519,7 @@ function Answer({
 
       {(reply || !working) && (
         <div className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs">
-          <p className="text-primary mb-1 text-xs font-bold">Copper</p>
+          <p className="text-primary mb-1 text-xs font-bold">{who}</p>
           {!useTools && (
             <div className="border-chart-3 bg-chart-3/10 mb-3 rounded-lg border p-3 text-xs">
               <p className="flex items-center gap-1.5 font-bold">
@@ -399,6 +542,18 @@ function Answer({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReplyCard({ who, reply }: { who: string; reply: string }) {
+  return (
+    <div
+      data-testid="refund-update"
+      className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs"
+    >
+      <p className="text-primary mb-1 text-xs font-bold">{who}</p>
+      <p className="text-sm whitespace-pre-wrap">{reply}</p>
     </div>
   );
 }
@@ -483,7 +638,7 @@ function ToolCard({ step, number }: { step: ToolStep; number: number }) {
           tool {number}
         </span>
         <span className="ml-auto text-xs text-white/80">
-          {TOOL_LABELS[step.name] ?? "Using a tool"}
+          {ALL_TOOL_LABELS[step.name] ?? "Using a tool"}
         </span>
       </div>
       <div className="space-y-2 px-3 py-3">
@@ -529,6 +684,8 @@ const nameOf = (value: unknown) =>
 const NO_INPUT: Record<string, string> = {
   get_prices: "Nothing, it just asked for the price list",
   get_products: "Nothing, it just asked what Copper sells",
+  list_my_orders: "Nothing: the app knows who is signed in",
+  transfer_to_refunds: "Nothing, it just handed the chat over",
 };
 
 function ToolInput({ name, input }: { name: string; input: unknown }) {
@@ -655,6 +812,39 @@ function ToolOutput({ name, output }: { name: string; output: any }) {
           </li>
         ))}
       </ol>
+    );
+  if (name === "list_my_orders" && output?.orders)
+    return (
+      <div className="text-xs">
+        {output.orders.map((o: any) => (
+          <div key={o.orderId} className="flex justify-between gap-2 py-0.5">
+            <span>
+              <span className="font-mono">{o.orderId}</span> {o.item}
+            </span>
+            <span className="shrink-0 font-mono">
+              {o.amount}
+              {o.refund !== "none" && ` · ${o.refund}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  if (name === "request_refund" && output?.result)
+    return (
+      <div className="space-y-1 text-xs">
+        <p>
+          The code decided:{" "}
+          <span className="font-bold">
+            {output.result === "refund"
+              ? "refund now"
+              : output.result === "refuse"
+                ? "refused by rule"
+                : "review by a person"}
+          </span>{" "}
+          (case {output.caseId})
+        </p>
+        <p className="text-muted-foreground">{output.message}</p>
+      </div>
     );
   // A tool without its own layout yet: show what came back as plain text.
   return (

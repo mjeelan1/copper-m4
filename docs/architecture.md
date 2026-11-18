@@ -207,3 +207,32 @@ so a lost request fails clearly instead of hanging, and it is never resent.
 open `/support` can approve. The "Signed in as" switcher stands in for real
 sign-in, and the simulator's signals are made up. The order dates count back
 from the day the seed ran, so the recent orders pass 30 days in a few weeks.
+
+## Module 4, Stage 2: Evaluator and learning loop
+
+**Summary:** Two tools for the people running refunds. The evaluator checks
+finished cases after the fact; the learning loop suggests a new per-order
+limit from what people decided. The rule stays: agents talk, code decides,
+people approve. Neither tool changes a decision, a limit or an order on its
+own.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Facts and replies | `lib/copper/refunds/service.ts`, `lib/copper/assistant/ask.ts` | Each case keeps the engine's exact input (`refund_cases.facts`, via `save_case_facts`). Every reply of the Refund agent's turn is saved in `chat_replies`, linked to its case and marked as the code's text or the agent's own words; a person's decision is saved when it reaches the chat |
+| Evaluator | `lib/copper/refunds/evaluator.ts`, `evaluator-store.ts`, `components/copper/refunds/evaluator-panel.tsx` | The "Run evaluator" button (never automatic) checks up to 5 finished cases not yet evaluated, with saved facts and not sample: (a) the customer was shown the decision log's exact text; (b) the engine run again on the saved facts and the limits saved at that moment gives the same result and flags; (c) only for the agent's own words, one AI question. Verdicts go to `evaluations` (pass or fail, one-sentence reason). `evaluator-store.ts` is its only door to the database: it reads, and writes only `evaluations` |
+| Learning loop | `lib/copper/refunds/suggestions.ts`, `learning.ts`, `components/copper/refunds/suggestions-panel.tsx` | Code only. Groups the cases a person decided (from the decision log) by amount band and flag. If people approved at least 80% of at least 5 unflagged cases in the bands just above the per-order limit, it suggests raising the limit to the top of those bands, with the counts. Accept works it out again on the server, saves through `saveLimits()` (the Settings form's checked path) and logs who and when in `suggestion_actions`; Ignore only records that it was ignored |
+| Sample history | `supabase/migrations/…_stage2_sample_history.sql` | A separate "Sample customer (sample)" account (`accounts.is_sample`) with 12 orders at catalog prices and 12 past cases a person decided. Inserts only |
+| Database | `supabase/migrations/…_stage2_evaluator_and_learning.sql` | Additive only, so Stage 1 runs unchanged on the same project. New tables have row level security with no policies; `save_case_facts` and `evaluator_next_cases` run for the server only |
+| AI calls | `{ module: 4, feature: "evaluator" }` (`callObject`) | At most one per evaluated case, and only when the agent wrote something in its own words |
+| Tests | `tests/evaluator.test.ts`, `suggestions.test.ts`, `stage2-sample.test.ts` (offline); `tests/stage2.live.test.ts` (`npm run test:live`) | The live tests use a stand-in AI judge, so they make no Gemini calls |
+
+**Decisions and trade-offs:** Unflagged cases only feed a suggestion, because
+a flagged case goes to a person whatever the limit. Bands are taken upward
+from the current limit without gaps, so a suggestion never skips amounts
+people haven't approved. Cases from before Stage 2 have no saved facts and
+are not evaluated. If the AI can't answer, the case is skipped and stays in
+the queue rather than being marked pass or fail.
+
+**Risks and open questions:** The console still has no sign-in, so the
+reviewer's name on Accept is whatever they type. A person's decision only
+counts as delivered once it reaches the chat it was asked in.

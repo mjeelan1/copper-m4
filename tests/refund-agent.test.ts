@@ -36,6 +36,9 @@ const service = {
   // Maya's orders start with M-; everything else is someone else's.
   isMyOrder: vi.fn(async (_session: string, id: string) => id.startsWith("M-")),
   normalizeOrderId: (id: string) => id.trim().toUpperCase(),
+  // Stage 2: what the customer was shown is saved for the evaluator.
+  recordChatReplies: vi.fn(async () => {}),
+  latestCaseId: vi.fn(async () => 6),
 };
 vi.mock("@/lib/copper/refunds/service", () => service);
 
@@ -242,6 +245,36 @@ describe("The Refund agent talks; the code decides", () => {
     model = modelStreaming(says("Which order would you like refunded?"));
     const result = await ask("I want my money back");
     expect(result.reply).toBe("Which order would you like refunded?");
+  });
+});
+
+describe("Stage 2: what the customer was shown is saved", () => {
+  beforeEach(() => {
+    session.agent = "refunds";
+  });
+
+  it("the code's text is saved as written by the code, linked to the case", async () => {
+    model = modelStreaming(calls("request_refund", { orderId: "M-1004" }));
+    await ask("Refund M-1004");
+    expect(service.recordChatReplies).toHaveBeenCalledWith(session.id, [
+      {
+        caseId: 7,
+        writtenBy: "code",
+        text: "THE EXACT TEXT FROM THE DECISION LOG",
+      },
+    ]);
+  });
+
+  it("the agent's own words are saved as such, linked to the newest case in the chat", async () => {
+    model = modelStreaming(says("Is there anything else I can help with?"));
+    await ask("Thanks!");
+    expect(service.recordChatReplies).toHaveBeenCalledWith(session.id, [
+      {
+        caseId: 6,
+        writtenBy: "agent",
+        text: "Is there anything else I can help with?",
+      },
+    ]);
   });
 });
 

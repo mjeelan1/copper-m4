@@ -22,7 +22,12 @@ import {
   refundTools,
 } from "@/lib/copper/refunds/agent";
 import { claimsApproval } from "@/lib/copper/refunds/decide";
-import { getSession, noteClaimedApproval } from "@/lib/copper/refunds/service";
+import {
+  getSession,
+  latestCaseId,
+  noteClaimedApproval,
+  recordChatReplies,
+} from "@/lib/copper/refunds/service";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -140,8 +145,8 @@ export async function askCopper({
       const decisions = toolSteps().filter(
         (s) => DECISION_TOOLS.includes(s.name) && s.state === "done",
       );
-      const official = decisions.map(
-        (s) => (s.output as { message: string }).message,
+      const official: { message: string; caseId?: number }[] = decisions.map(
+        (s) => s.output as { message: string; caseId?: number },
       );
       // Any other order the customer named gets the code's answer too: a
       // logged refusal for someone else's order, or the log's status for
@@ -158,7 +163,9 @@ export async function askCopper({
           ),
         })),
       );
-      if (official.length > 0) progress.reply = official.join("\n\n");
+      if (official.length > 0)
+        progress.reply = official.map((o) => o.message).join("\n\n");
+      await recordReply(session!.id, official, progress.reply);
       finish();
     } catch (error) {
       // The customer sees "Sorry"; the reason goes to the terminal.
@@ -179,6 +186,47 @@ export async function askCopper({
   })();
 
   return { progress: live };
+}
+
+/**
+ * Stage 2: saves what the customer is shown, for the evaluator. The code's
+ * text is linked to each case decided this turn; the agent's own words to
+ * the newest case in the chat. Saving never changes or delays a decision.
+ */
+async function recordReply(
+  sessionId: string,
+  official: { message: string; caseId?: number }[],
+  reply: string,
+) {
+  if (!reply.trim()) return;
+  try {
+    if (official.length > 0) {
+      const caseIds = [
+        ...new Set(official.flatMap((o) => (o.caseId ? [o.caseId] : []))),
+      ];
+      await recordChatReplies(
+        sessionId,
+        (caseIds.length > 0 ? caseIds : [null]).map((caseId) => ({
+          caseId,
+          writtenBy: "code" as const,
+          text: reply,
+        })),
+      );
+    } else {
+      await recordChatReplies(sessionId, [
+        {
+          caseId: await latestCaseId(sessionId),
+          writtenBy: "agent",
+          text: reply,
+        },
+      ]);
+    }
+  } catch (error) {
+    console.error(
+      "[ask-copper] couldn't save the reply:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 /** Reads one agent's stream into `progress`, calling `send` after each part. */

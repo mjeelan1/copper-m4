@@ -9,6 +9,8 @@
 // It refreshes every few seconds, so new cases show up on their own.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AskCopper } from "@/components/copper/ask-copper";
+import { EvaluatorPanel } from "@/components/copper/refunds/evaluator-panel";
+import { SuggestionsPanel } from "@/components/copper/refunds/suggestions-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,7 +115,16 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
           if (sessionId) await updateChatSignals(sessionId, next);
         }}
       />
-      {data && <Settings limits={data.limits} onSaved={refresh} />}
+      {data && (
+        // Keyed by the limits, so the form shows them again after Accept.
+        <Settings
+          key={JSON.stringify(data.limits)}
+          limits={data.limits}
+          onSaved={refresh}
+        />
+      )}
+      <SuggestionsPanel onChanged={refresh} />
+      <EvaluatorPanel />
       <DecisionLog data={data} />
       <AskCopper
         key={sessionId ?? "starting"}
@@ -140,7 +151,11 @@ function Flags({ flags }: { flags: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {flags.map((flag) => (
-        <Badge key={flag} variant="destructive">
+        <Badge
+          key={flag}
+          variant="destructive"
+          className="h-auto text-left whitespace-normal"
+        >
           {flag}
         </Badge>
       ))}
@@ -155,15 +170,6 @@ function Reasons({ reasons }: { reasons: string[] }) {
         <li key={reason}>{reason}</li>
       ))}
     </ul>
-  );
-}
-
-function LimitsText({ limits }: { limits: Limits }) {
-  return (
-    <span className="font-mono text-xs whitespace-nowrap">
-      {usd(limits.orderCents)} / {usd(limits.accountDailyCents)} /{" "}
-      {usd(limits.shopDailyCents)}
-    </span>
   );
 }
 
@@ -435,48 +441,55 @@ function DecisionLog({ data }: { data: ConsoleData | null }) {
         {!data || data.log.length === 0 ? (
           <p className="text-muted-foreground text-sm">No decisions yet.</p>
         ) : (
-          <Table>
+          // Fixed column widths and wrapping text, so the whole log fits
+          // beside the docked chat on a 1440-pixel screen.
+          <Table className="table-fixed text-xs">
             <TableHeader>
               <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Case</TableHead>
-                <TableHead>Order</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>Decided by</TableHead>
-                <TableHead>Result</TableHead>
+                <TableHead className="w-24">Case and time</TableHead>
+                <TableHead className="w-32">Order</TableHead>
+                <TableHead className="w-24">Decision</TableHead>
                 <TableHead>Reasons</TableHead>
-                <TableHead>Flags</TableHead>
-                <TableHead>Limits</TableHead>
+                <TableHead className="w-32">Flags</TableHead>
+                <TableHead className="w-24">Limits then</TableHead>
                 <TableHead>Customer saw</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.log.map((d) => (
-                <TableRow key={d.id} className="align-top text-xs">
-                  <TableCell className="whitespace-nowrap">
+                <TableRow key={d.id} className="align-top">
+                  <TableCell className="whitespace-normal">
+                    <span className="font-semibold">Case {d.caseId}</span>
+                    <br />
                     {new Date(d.at).toLocaleString()}
                   </TableCell>
-                  <TableCell>{d.caseId}</TableCell>
-                  <TableCell className="font-mono whitespace-nowrap">
-                    {d.orderId} · {amountOf(d.amountCents)}
+                  <TableCell className="whitespace-normal">
+                    <span className="font-mono">{d.orderId}</span> ·{" "}
+                    {amountOf(d.amountCents)}
+                    <br />
+                    {d.accountName}
                   </TableCell>
-                  <TableCell>{d.accountName}</TableCell>
-                  <TableCell>
-                    {d.decidedBy === "code" ? "The code" : "A person"}
+                  <TableCell className="whitespace-normal">
+                    <span className="font-semibold">
+                      {RESULT_LABEL[d.result]}
+                    </span>
+                    <br />
+                    {d.decidedBy === "code" ? "by the code" : "by a person"}
                   </TableCell>
-                  <TableCell className="font-semibold">
-                    {RESULT_LABEL[d.result]}
-                  </TableCell>
-                  <TableCell className="max-w-64 whitespace-normal">
+                  <TableCell className="whitespace-normal">
                     <Reasons reasons={d.reasons} />
                   </TableCell>
-                  <TableCell className="max-w-48 whitespace-normal">
+                  <TableCell className="whitespace-normal">
                     <Flags flags={d.flags} />
                   </TableCell>
-                  <TableCell>
-                    <LimitsText limits={d.limits} />
+                  <TableCell className="font-mono whitespace-normal">
+                    {usd(d.limits.orderCents)} order
+                    <br />
+                    {usd(d.limits.accountDailyCents)} account
+                    <br />
+                    {usd(d.limits.shopDailyCents)} shop
                   </TableCell>
-                  <TableCell className="max-w-64 whitespace-normal">
+                  <TableCell className="whitespace-normal">
                     {d.customerMessage}
                   </TableCell>
                 </TableRow>

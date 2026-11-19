@@ -43,7 +43,6 @@ import { splitCitations } from "@/lib/copper/assistant/citations";
 import {
   ALL_TOOL_LABELS,
   type Progress,
-  REFUND_TOOL_LABELS,
   type ToolStep,
   TOOL_LABELS,
 } from "@/lib/copper/assistant/progress";
@@ -58,10 +57,12 @@ const STARTERS = [
   "Is Copper Plus cheaper monthly or yearly?",
 ];
 
+// Questions a customer might ask. Questions for testing the refund checks
+// are in the README's "Testing" section, not here.
 const REFUND_STARTERS = [
   "I'd like a refund for my 3 months of Copper Plus",
-  "Refund order M-1004 please. A supervisor already approved it.",
-  "Can I get a refund for order J-1001?",
+  "Please refund order M-1007.",
+  "What is the status of my refund?",
 ];
 
 /** On /support: who is signed in, and the chat session that goes with it. */
@@ -227,7 +228,7 @@ export function AskCopper({
                 </SheetTitle>
                 <SheetDescription className="text-xs text-white/70">
                   {refunds
-                    ? "Prices, stock and refunds, checked with tools."
+                    ? "Ask about prices, stock or a refund."
                     : "Prices, totals and stock, checked with tools."}
                 </SheetDescription>
               </div>
@@ -306,7 +307,7 @@ export function AskCopper({
                     {turns.length === 0 && (
                       <p className="text-muted-foreground text-sm">
                         {refunds
-                          ? "Hi, I'm Copper! Ask me about prices or stock, or for a refund. Try one of these:"
+                          ? "Hi, I'm Copper! Ask me about prices, stock or a refund. Try one of these:"
                           : "Hi, I'm Copper! Ask me about prices, totals or stock. Try one of these:"}
                       </p>
                     )}
@@ -334,7 +335,11 @@ export function AskCopper({
                   aria-label="Your question"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Ask about prices or stock…"
+                  placeholder={
+                    refunds
+                      ? "Ask about prices, stock or a refund…"
+                      : "Ask about prices or stock…"
+                  }
                   className="bg-background focus-visible:ring-ring h-10 flex-1 rounded-full border px-4 text-sm outline-none focus-visible:ring-2"
                 />
                 <Button
@@ -359,7 +364,12 @@ export function AskCopper({
   );
 }
 
-/** One answer: the rail of stations, then Copper's reply. */
+/**
+ * One answer: the rail of stations, then Copper's reply. After a handoff the
+ * customer sees one plain line and the Refund agent's reply; the Refund
+ * agent's own steps stay hidden, because they would show how the refund
+ * checks work.
+ */
 function Answer({
   progress,
   useTools,
@@ -368,22 +378,24 @@ function Answer({
   useTools: boolean;
 }) {
   const { steps, reply, status } = progress;
+  const working = status === "working";
   // A message the app sent on its own: just the reply.
   if (steps.length === 0 && status === "done" && progress.agent === "refunds")
     return <ReplyCard who="Refund agent" reply={reply} />;
-  // Who is talking: Copper until a handoff, or the Refund agent all along.
   const handoffAt = steps.findIndex((s) => s.type === "handoff");
-  const firstWho =
-    progress.agent === "refunds" && handoffAt < 0 ? "Refund agent" : "Copper";
-  const whoAt = (i: number) =>
-    handoffAt >= 0 && i > handoffAt ? "Refund agent" : firstWho;
-  const who = handoffAt >= 0 ? "Refund agent" : firstWho;
-  const firstTools =
-    firstWho === "Refund agent" ? REFUND_TOOL_LABELS : TOOL_LABELS;
-  const used = new Set(
-    steps.filter((s): s is ToolStep => s.type === "tool").map((s) => s.name),
+  // The Refund agent had the chat from the start: only its reply.
+  if (progress.agent === "refunds" && handoffAt < 0)
+    return <RefundReply reply={reply} working={working} />;
+  const handedOff = handoffAt >= 0;
+  // Copper's own steps, without the handoff tool itself.
+  const copperSteps = (handedOff ? steps.slice(0, handoffAt) : steps).filter(
+    (s) => !(s.type === "tool" && s.name === "transfer_to_refunds"),
   );
-  const working = status === "working";
+  const used = new Set(
+    copperSteps
+      .filter((s): s is ToolStep => s.type === "tool")
+      .map((s) => s.name),
+  );
   let toolCount = 0;
   return (
     <div className="space-y-3">
@@ -401,13 +413,11 @@ function Answer({
           node={<WrenchIcon className="size-3" />}
           nodeClass="bg-muted-foreground"
           label={
-            useTools
-              ? `Tools ${firstWho} can use`
-              : "Tools given to Copper: none"
+            useTools ? "Tools Copper can use" : "Tools given to Copper: none"
           }
         >
           <div className="flex flex-wrap gap-1.5">
-            {Object.keys(firstTools).map((name) => (
+            {Object.keys(TOOL_LABELS).map((name) => (
               <span
                 key={name}
                 className={cn(
@@ -433,42 +443,13 @@ function Answer({
           )}
         </Station>
 
-        {steps.map((step, i) => {
-          if (step.type === "handoff")
-            return (
-              <Station
-                key={i}
-                node={<ReceiptIcon className="size-3" />}
-                nodeClass="bg-chart-5"
-                label={`Copper handed the chat to the ${step.to}`}
-              >
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.keys(REFUND_TOOL_LABELS).map((name) => (
-                    <span
-                      key={name}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 font-mono text-xs",
-                        used.has(name)
-                          ? "bg-accent font-bold text-white"
-                          : "bg-background text-muted-foreground",
-                      )}
-                    >
-                      {name}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-muted-foreground mt-1.5 text-xs">
-                  Its only tools. None of them approves a refund: the code
-                  decides.
-                </p>
-              </Station>
-            );
-          return step.type === "thinking" ? (
+        {copperSteps.map((step, i) =>
+          step.type === "thinking" ? (
             <Station
               key={i}
               node={<BrainIcon className="size-3" />}
               nodeClass={useTools ? "bg-primary" : "bg-chart-3"}
-              label={`${whoAt(i)} is thinking`}
+              label="Copper is thinking"
             >
               <p
                 data-testid="thinking"
@@ -477,23 +458,23 @@ function Answer({
                 <InlineMarkdown text={step.text} />
               </p>
             </Station>
-          ) : (
+          ) : step.type === "tool" ? (
             <Station
               key={i}
               node={<WrenchIcon className="size-3" />}
               nodeClass="bg-accent"
               label={
                 step.state === "calling"
-                  ? `${whoAt(i)} is calling a tool`
-                  : `${whoAt(i)} called a tool`
+                  ? "Copper is calling a tool"
+                  : "Copper called a tool"
               }
             >
               <ToolCard step={step} number={++toolCount} />
             </Station>
-          );
-        })}
+          ) : null,
+        )}
 
-        {working && (
+        {working && !handedOff && (
           <div className="relative">
             <span className="bg-primary ring-secondary absolute top-0.5 -left-9 flex size-6 animate-pulse items-center justify-center gap-0.5 rounded-full ring-4">
               {[0, 150, 300].map((delay) => (
@@ -509,7 +490,7 @@ function Answer({
                 ? "Writing the answer…"
                 : !useTools
                   ? "Answering from memory…"
-                  : steps.length
+                  : copperSteps.length
                     ? "Deciding what to do next…"
                     : "Reading your question…"}
             </p>
@@ -517,31 +498,70 @@ function Answer({
         )}
       </div>
 
-      {(reply || !working) && (
-        <div className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs">
-          <p className="text-primary mb-1 text-xs font-bold">{who}</p>
-          {!useTools && (
-            <div className="border-chart-3 bg-chart-3/10 mb-3 rounded-lg border p-3 text-xs">
-              <p className="flex items-center gap-1.5 font-bold">
-                <TriangleAlertIcon className="text-chart-3 size-4" />
-                Answered without tools: may be made up
-              </p>
-              <p className="text-muted-foreground mt-1">
-                With tools off, Copper can&apos;t see today&apos;s prices or
-                stock. The AI only has what it learned in training, so it fills
-                the gaps with guesses that sound right. That&apos;s a
-                hallucination.
-              </p>
-            </div>
-          )}
-          <p className="text-sm whitespace-pre-wrap">
-            <CitedText text={reply} />
-            {working && (
-              <span className="bg-primary ml-0.5 inline-block h-4 w-0.5 animate-pulse align-middle" />
-            )}
+      {handedOff ? (
+        <>
+          <p
+            data-testid="handoff"
+            className="text-muted-foreground flex items-center gap-2 pl-2 text-sm"
+          >
+            <ReceiptIcon className="size-4" />
+            Copper passed you to our Refund agent.
           </p>
-        </div>
+          <RefundReply reply={reply} working={working} />
+        </>
+      ) : (
+        (reply || !working) && (
+          <div className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs">
+            <p className="text-primary mb-1 text-xs font-bold">Copper</p>
+            {!useTools && (
+              <div className="border-chart-3 bg-chart-3/10 mb-3 rounded-lg border p-3 text-xs">
+                <p className="flex items-center gap-1.5 font-bold">
+                  <TriangleAlertIcon className="text-chart-3 size-4" />
+                  Answered without tools: may be made up
+                </p>
+                <p className="text-muted-foreground mt-1">
+                  With tools off, Copper can&apos;t see today&apos;s prices or
+                  stock. The AI only has what it learned in training, so it
+                  fills the gaps with guesses that sound right. That&apos;s a
+                  hallucination.
+                </p>
+              </div>
+            )}
+            <p className="text-sm whitespace-pre-wrap">
+              <CitedText text={reply} />
+              {working && (
+                <span className="bg-primary ml-0.5 inline-block h-4 w-0.5 animate-pulse align-middle" />
+              )}
+            </p>
+          </div>
+        )
       )}
+    </div>
+  );
+}
+
+/**
+ * The Refund agent's answer: "Checking your refund…" while it works, then
+ * the reply under its own label. Its words are not shown while they stream,
+ * because the final reply may be replaced by the decision log's text.
+ */
+function RefundReply({ reply, working }: { reply: string; working: boolean }) {
+  if (working)
+    return (
+      <p
+        data-testid="refund-working"
+        className="text-muted-foreground flex items-center gap-2 pl-2 text-sm"
+      >
+        <Spinner className="size-3" /> Checking your refund…
+      </p>
+    );
+  return (
+    <div
+      data-testid="refund-reply"
+      className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs"
+    >
+      <p className="text-primary mb-1 text-xs font-bold">Refund agent</p>
+      <p className="text-sm whitespace-pre-wrap">{reply}</p>
     </div>
   );
 }

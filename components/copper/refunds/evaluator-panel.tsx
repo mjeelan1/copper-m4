@@ -29,10 +29,10 @@ function summary(run: EvaluatorRun) {
   const passed = run.evaluated.filter((e) => e.result === "pass").length;
   const parts = [
     run.evaluated.length === 0 && run.skipped.length === 0
-      ? "Nothing new to check."
-      : `Checked ${run.evaluated.length} case${run.evaluated.length === 1 ? "" : "s"}: ${passed} passed, ${run.evaluated.length - passed} failed.`,
+      ? "There are no new cases to check."
+      : `Checked ${run.evaluated.length} case${run.evaluated.length === 1 ? "" : "s"}. ${passed} passed. ${run.evaluated.length - passed} failed.`,
     ...run.skipped.map(
-      (s) => `Case ${s.caseId} skipped, try again later: ${s.reason}`,
+      (s) => `Case ${s.caseId} was skipped. Please try again later.`,
     ),
   ];
   return parts.join(" ");
@@ -47,7 +47,7 @@ export function EvaluatorPanel() {
     try {
       setRows(await getEvaluations());
     } catch {
-      setNote("Can't reach Supabase right now.");
+      setNote("We can't load the data right now.");
     }
   }, []);
 
@@ -62,9 +62,8 @@ export function EvaluatorPanel() {
     try {
       setNote(summary(await runEvaluatorNow()));
     } catch (error) {
-      setNote(
-        `The evaluator couldn't run: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      console.error(error);
+      setNote("The evaluator could not run. Please try again later.");
     }
     await load();
     setRunning(false);
@@ -75,12 +74,12 @@ export function EvaluatorPanel() {
       <CardHeader>
         <CardTitle>Evaluator</CardTitle>
         <CardDescription>
-          Checks up to 5 finished cases that haven&apos;t been checked yet: the
-          customer saw the decision log&apos;s exact text, and the engine run
-          again on the saved facts still agrees. Only replies the agent wrote in
-          its own words get one AI question. It never changes a decision. Cases
-          from before Stage 2 (no saved facts) and sample history are not
-          checked.
+          Checks up to 5 finished cases that have not been checked before. For
+          each case, it checks two things. First, did the customer see exactly
+          the words in the decision log? Second, does the decision engine still
+          give the same result? If the agent wrote a reply in its own words, the
+          AI also reads that reply once. The evaluator never changes a decision.
+          It skips cases from before Stage 2 and the sample history.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -91,7 +90,9 @@ export function EvaluatorPanel() {
           {note && <p className="text-sm">{note}</p>}
         </div>
         {rows.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No evaluations yet.</p>
+          <p className="text-muted-foreground text-sm">
+            No cases have been checked yet.
+          </p>
         ) : (
           <Table className="table-fixed text-xs">
             <TableHeader>
@@ -100,7 +101,7 @@ export function EvaluatorPanel() {
                 <TableHead className="w-28">Order</TableHead>
                 <TableHead className="w-16">Result</TableHead>
                 <TableHead>Reason</TableHead>
-                <TableHead className="w-24">AI check</TableHead>
+                <TableHead className="w-28">AI read the reply</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -116,14 +117,14 @@ export function EvaluatorPanel() {
                     <Badge
                       variant={e.result === "pass" ? "default" : "destructive"}
                     >
-                      {e.result}
+                      {e.result === "pass" ? "Passed" : "Failed"}
                     </Badge>
                   </TableCell>
                   <TableCell className="whitespace-normal">
                     {e.reason}
                   </TableCell>
                   <TableCell className="whitespace-normal">
-                    {e.aiChecked ? "asked" : "not needed"}
+                    {e.aiChecked ? "Yes" : "Not needed"}
                   </TableCell>
                 </TableRow>
               ))}

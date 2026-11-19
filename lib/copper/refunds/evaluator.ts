@@ -16,6 +16,7 @@ import {
   type Limits,
   type Result,
 } from "@/lib/copper/refunds/decide";
+import { flagLabel, RESULT_LABEL } from "@/lib/copper/refunds/labels";
 import type { SavedFacts } from "@/lib/copper/refunds/service";
 
 /** The most cases one click of "Run evaluator" checks. */
@@ -79,18 +80,29 @@ function checkReplies(c: CaseToEvaluate): Verdict {
         pass: false,
         reason:
           decision.decidedBy === "person"
-            ? "The customer was never shown the person's decision in the decision log's exact words."
-            : "The customer was not shown the code's decision in the decision log's exact words.",
+            ? "The customer never saw the exact words of the person's decision."
+            : "The customer did not see the exact words of the system's decision.",
       };
   }
   return { pass: true, reason: "" };
+}
+
+/** A result in plain words, with its warnings if it has any. */
+function resultLabel(result: LoggedDecision["result"], flags: string[]) {
+  const label = RESULT_LABEL[result];
+  return flags.length > 0
+    ? `${label}, with warnings: ${flags.map(flagLabel).join(", ")}`
+    : label;
 }
 
 /** (b) The engine, run again on the saved facts and limits, agrees. */
 function checkEngine(c: CaseToEvaluate): Verdict {
   const logged = c.decisions.find((d) => d.decidedBy === "code");
   if (!logged)
-    return { pass: false, reason: "The case has no decision by the code." };
+    return {
+      pass: false,
+      reason: "The case has no decision from the system.",
+    };
   const again = decideRefund({
     ...c.facts,
     limits: c.limits,
@@ -101,7 +113,7 @@ function checkEngine(c: CaseToEvaluate): Verdict {
   if (again.result !== logged.result || !sameFlags)
     return {
       pass: false,
-      reason: `Run again on the saved facts, the engine now decides "${again.result}" with flags [${again.flags.join(", ")}], not "${logged.result}" with [${logged.flags.join(", ")}].`,
+      reason: `The decision engine now gives a different result: "${resultLabel(again.result, again.flags)}" instead of "${resultLabel(logged.result, logged.flags)}".`,
     };
   return { pass: true, reason: "" };
 }
@@ -127,11 +139,11 @@ export async function evaluateCase(
   const failed = [replies, engine, ...(ai ? [ai] : [])].find((v) => !v.pass);
   const reason = failed
     ? failed === ai
-      ? `The AI check failed the agent's own words: ${ai.reason}`
+      ? `The AI found a problem in the agent's own reply: ${ai.reason}`
       : failed.reason
     : ai
-      ? `The customer got the decision log's exact text, the engine still agrees, and the agent's own words passed the AI check.`
-      : `The customer got the decision log's exact text and the engine still agrees.`;
+      ? "The customer saw the exact words from the decision log. The decision engine gives the same result. The AI found the agent's own reply clear and polite."
+      : "The customer saw the exact words from the decision log. The decision engine gives the same result.";
   return {
     caseId: c.caseId,
     result: failed ? "fail" : "pass",

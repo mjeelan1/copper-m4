@@ -142,9 +142,12 @@ export function suggestOrderLimit(
     key,
     fromOrderCents: from,
     toOrderCents: to,
-    text: `Raise the per-order limit from ${usd(from)} to ${usd(to)}: people approved ${evidence
-      .map((e) => `${e.approved} of ${e.decided} cases from ${e.band}`)
-      .join(" and ")}.`,
+    text: `Raise the order limit from ${usd(from)} to ${usd(to)}. People approved ${evidence
+      .map(
+        (e) =>
+          `${e.approved} of ${e.decided} refunds between ${e.band.replace(" to ", " and ")}`,
+      )
+      .join(", and ")}.`,
     evidence,
   };
 }

@@ -131,7 +131,9 @@ describe("evaluateCase", () => {
     const result = await evaluateCase(c, judgeSays(true));
     expect(result.result).toBe("fail");
     expect(result.engineMatches).toBe(false);
-    expect(result.reason).toContain('now decides "review"');
+    expect(result.reason).toContain(
+      'now gives a different result: "Sent to a person"',
+    );
   });
 
   it("uses the limits saved with the case, not today's", async () => {

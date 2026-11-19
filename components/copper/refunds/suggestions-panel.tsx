@@ -28,10 +28,11 @@ import {
   ignoreLimitSuggestion,
 } from "@/lib/copper/refunds/actions";
 import { usd } from "@/lib/copper/refunds/decide";
+import { flagLabel } from "@/lib/copper/refunds/labels";
 import type { LearningData } from "@/lib/copper/refunds/learning";
 
 const percent = (approved: number, decided: number) =>
-  decided === 0 ? "—" : `${Math.round((approved / decided) * 100)}%`;
+  decided === 0 ? "—" : `${Math.round((approved / decided) * 100)} percent`;
 
 export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
   const [data, setData] = useState<LearningData | null>(null);
@@ -43,7 +44,7 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
     try {
       setData(await getLearning());
     } catch {
-      setNote("Can't reach Supabase right now.");
+      setNote("We can't load the data right now.");
     }
   }, []);
 
@@ -54,7 +55,7 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
 
   async function act(action: "accept" | "ignore", key: string) {
     if (!name.trim()) {
-      setNote("Type your name first, so the log shows who decided.");
+      setNote("Please type your name first. The log records who decided.");
       return;
     }
     setBusy(true);
@@ -65,8 +66,8 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
     setNote(
       result.ok
         ? action === "accept"
-          ? "Accepted: the new per-order limit is saved."
-          : "Ignored: the suggestion is hidden and nothing changed."
+          ? "Accepted. The new order limit is saved."
+          : "Ignored. The suggestion is hidden. Nothing changed."
         : result.error,
     );
     await load();
@@ -80,10 +81,11 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
       <CardHeader>
         <CardTitle>Suggestions</CardTitle>
         <CardDescription>
-          Worked out in code (no AI) from the cases a person decided. When
-          people approved at least 80% of at least 5 unflagged cases in the
-          amount bands just above the per-order limit, it suggests raising the
-          limit. Nothing changes until someone clicks Accept.
+          This panel looks at the refunds that people decided. It looks only at
+          refunds in the price range just above the order limit. It needs at
+          least 5 of them. If people approved at least 80 percent of them, it
+          suggests a higher order limit. Refunds with warnings do not count.
+          Nothing changes until someone clicks Accept.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -100,20 +102,19 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
                 <ul className="list-disc pl-5 text-xs">
                   {suggestion.evidence.map((e) => (
                     <li key={e.band}>
-                      {e.band}: {e.approved} of {e.decided} unflagged cases
-                      approved ({e.approvedPercent}%)
-                      {e.sample > 0 && `, ${e.sample} of them sample history`}
+                      {e.band}: {e.decided} refunds had no warnings. People
+                      approved {e.approved} of them ({e.approvedPercent}{" "}
+                      percent).
                       {e.flaggedLeftOut > 0 &&
-                        `; ${e.flaggedLeftOut} flagged case${e.flaggedLeftOut === 1 ? "" : "s"} left out`}
-                      .
+                        (e.flaggedLeftOut === 1
+                          ? " 1 refund with warnings was not counted."
+                          : ` ${e.flaggedLeftOut} refunds with warnings were not counted.`)}
                     </li>
                   ))}
                 </ul>
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="space-y-1">
-                    <Label htmlFor="reviewer-name">
-                      Your name (for the log)
-                    </Label>
+                    <Label htmlFor="reviewer-name">Your name</Label>
                     <Input
                       id="reviewer-name"
                       className="h-8 w-48"
@@ -140,24 +141,23 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
               </div>
             ) : (
               <p className="text-muted-foreground text-sm">
-                No suggestion right now (per-order limit{" "}
-                {usd(data.limits.orderCents)}).
+                There is no suggestion right now. The order limit is{" "}
+                {usd(data.limits.orderCents)}.
               </p>
             )}
             {note && <p className="text-sm">{note}</p>}
 
             <div>
               <p className="mb-1 text-sm font-semibold">
-                Cases a person decided, by amount band and flag
+                Refunds that people decided, by price range and warning
               </p>
               <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Amount band</TableHead>
-                    <TableHead>Flag</TableHead>
+                    <TableHead>Price range</TableHead>
+                    <TableHead>Warning</TableHead>
                     <TableHead>Decided</TableHead>
                     <TableHead>Approved</TableHead>
-                    <TableHead>Sample</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -167,12 +167,13 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
                       .map((g) => (
                         <TableRow key={`${band.label}-${g.flag}`}>
                           <TableCell>{band.label}</TableCell>
-                          <TableCell>{g.flag}</TableCell>
+                          <TableCell className="whitespace-normal">
+                            {flagLabel(g.flag)}
+                          </TableCell>
                           <TableCell>{g.decided}</TableCell>
                           <TableCell>
                             {g.approved} ({percent(g.approved, g.decided)})
                           </TableCell>
-                          <TableCell>{g.sample}</TableCell>
                         </TableRow>
                       )),
                   )}
@@ -182,14 +183,13 @@ export function SuggestionsPanel({ onChanged }: { onChanged: () => void }) {
 
             {data.history.length > 0 && (
               <div>
-                <p className="mb-1 text-sm font-semibold">
-                  Accepted or ignored
-                </p>
+                <p className="mb-1 text-sm font-semibold">Past suggestions</p>
                 <ul className="space-y-0.5 text-xs">
                   {data.history.map((h) => (
                     <li key={`${h.key}-${h.at}`}>
-                      {new Date(h.at).toLocaleString()}: {h.byName} {h.action}{" "}
-                      {usd(h.fromOrderCents)} → {usd(h.toOrderCents)}
+                      {new Date(h.at).toLocaleString()}: {h.byName} {h.action} a
+                      change from {usd(h.fromOrderCents)} to{" "}
+                      {usd(h.toOrderCents)}.
                     </li>
                   ))}
                 </ul>

@@ -7,11 +7,23 @@
 // - Settings: the three limits.
 // - Decision log: every decision, by the code or by a person.
 // It refreshes every few seconds, so new cases show up on their own.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { AskCopper } from "@/components/copper/ask-copper";
 import { EvaluatorPanel } from "@/components/copper/refunds/evaluator-panel";
 import { SuggestionsPanel } from "@/components/copper/refunds/suggestions-panel";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,12 +45,14 @@ import {
 import {
   getAccounts,
   getConsole,
+  getLearning,
   reviewRefund,
   saveRefundLimits,
   startChatSession,
   updateChatSignals,
 } from "@/lib/copper/refunds/actions";
 import { type Limits, type Signals, usd } from "@/lib/copper/refunds/decide";
+import { flagLabel, RESULT_LABEL } from "@/lib/copper/refunds/labels";
 import type { Account, ConsoleData } from "@/lib/copper/refunds/service";
 
 /** An ordinary shopper at home in the US, until the simulator says otherwise. */
@@ -62,7 +76,7 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
       setData(await getConsole());
       setProblem("");
     } catch {
-      setProblem("Can't reach Supabase right now. Retrying…");
+      setProblem("We can't load the data right now. Trying again…");
     }
   }, []);
 
@@ -81,7 +95,7 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
         setAccountId(first.id);
         setSessionId(await startChatSession(first.id, START_SIGNALS));
       } catch {
-        setProblem("Can't reach Supabase right now. Reload to try again.");
+        setProblem("We can't load the data right now. Please reload the page.");
       }
     })();
   }, []);
@@ -108,13 +122,6 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
     <div className="space-y-6">
       {problem && <p className="text-chart-3 text-sm">{problem}</p>}
       <WaitingReviews data={data} onChange={refresh} />
-      <CustomerSimulator
-        signals={signals}
-        onApply={async (next) => {
-          setSignals(next);
-          if (sessionId) await updateChatSignals(sessionId, next);
-        }}
-      />
       {data && (
         // Keyed by the limits, so the form shows them again after Accept.
         <Settings
@@ -126,6 +133,16 @@ export function RefundConsole({ aiConfigured }: { aiConfigured: boolean }) {
       <SuggestionsPanel onChanged={refresh} />
       <EvaluatorPanel />
       <DecisionLog data={data} />
+      <DemoTools>
+        <CustomerSimulator
+          signals={signals}
+          onApply={async (next) => {
+            setSignals(next);
+            if (sessionId) await updateChatSignals(sessionId, next);
+          }}
+        />
+        <SampleHistory />
+      </DemoTools>
       <AskCopper
         key={sessionId ?? "starting"}
         aiConfigured={aiConfigured}
@@ -147,7 +164,7 @@ function amountOf(cents: number | null) {
 
 function Flags({ flags }: { flags: string[] }) {
   if (flags.length === 0)
-    return <span className="text-muted-foreground">none</span>;
+    return <span className="text-muted-foreground">None</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {flags.map((flag) => (
@@ -156,7 +173,7 @@ function Flags({ flags }: { flags: string[] }) {
           variant="destructive"
           className="h-auto text-left whitespace-normal"
         >
-          {flag}
+          {flagLabel(flag)}
         </Badge>
       ))}
     </div>
@@ -189,8 +206,8 @@ function WaitingReviews({
     const { changed } = await reviewRefund(caseId, decision);
     setNote(
       changed
-        ? `Case ${caseId}: ${decision === "approve" ? "approved" : "rejected"}.`
-        : `Case ${caseId} was already decided, so nothing changed.`,
+        ? `Case ${caseId} is ${decision === "approve" ? "approved" : "rejected"}.`
+        : `Case ${caseId} was already decided. Nothing changed.`,
     );
     await onChange();
   }
@@ -198,9 +215,10 @@ function WaitingReviews({
   return (
     <Card data-testid="waiting-reviews">
       <CardHeader>
-        <CardTitle>Waiting reviews</CardTitle>
+        <CardTitle>Refunds to review</CardTitle>
         <CardDescription>
-          The code sent these to a person. Only a click here approves a refund.
+          These refund requests need a person to decide. A refund is approved
+          only when you click Approve.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -208,7 +226,9 @@ function WaitingReviews({
         {!data ? (
           <p className="text-muted-foreground text-sm">Loading…</p>
         ) : data.waiting.length === 0 ? (
-          <p className="text-muted-foreground text-sm">Nothing is waiting.</p>
+          <p className="text-muted-foreground text-sm">
+            No refund requests are waiting.
+          </p>
         ) : (
           <Table>
             <TableHeader>
@@ -216,9 +236,9 @@ function WaitingReviews({
                 <TableHead>Case</TableHead>
                 <TableHead>Order</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead>Account</TableHead>
+                <TableHead>Customer</TableHead>
                 <TableHead>Reasons</TableHead>
-                <TableHead>Flags</TableHead>
+                <TableHead>Warnings</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -238,12 +258,12 @@ function WaitingReviews({
                         className="bg-muted mt-2 rounded-md p-2"
                       >
                         <p className="font-semibold">
-                          Earlier decision: case {earlier.caseId}, rejected by a
-                          person on{" "}
-                          {new Date(earlier.decidedAt).toLocaleString()}
+                          Earlier decision: a person rejected case{" "}
+                          {earlier.caseId} on{" "}
+                          {new Date(earlier.decidedAt).toLocaleString()}.
                         </p>
                         <p className="text-muted-foreground">
-                          The code sent it to review because:{" "}
+                          It was sent to a person because:{" "}
                           {earlier.reasons.join(" ")}
                         </p>
                         <p className="text-muted-foreground">
@@ -285,10 +305,10 @@ function WaitingReviews({
 }
 
 const SIGNAL_FIELDS: { key: keyof Signals; label: string }[] = [
-  { key: "ip", label: "IP address" },
+  { key: "ip", label: "Internet address (IP)" },
   { key: "device", label: "Device" },
   { key: "browser", label: "Browser" },
-  { key: "country", label: "Location (country code)" },
+  { key: "country", label: "Country (two letters, for example US)" },
 ];
 
 function CustomerSimulator({
@@ -305,9 +325,10 @@ function CustomerSimulator({
       <CardHeader>
         <CardTitle>Customer simulator</CardTitle>
         <CardDescription>
-          Made-up values the app records for the chat. To play a bad actor, keep
-          the same device and switch &quot;Signed in as&quot; in the chat, or
-          set a country other than the account&apos;s home.
+          Pretend to be a customer. These made-up values are saved with the
+          current chat. To test the warnings, keep the same device and switch
+          &quot;Signed in as&quot; in the chat. Or enter a country other than
+          the customer&apos;s home country.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -361,14 +382,19 @@ function Settings({
   });
   const [message, setMessage] = useState("");
   const fields = [
-    { key: "order", label: "Order limit: orders over this wait for a person" },
+    {
+      key: "order",
+      label: "Order limit. Orders above this amount wait for a person.",
+    },
     {
       key: "accountDaily",
-      label: "Account daily limit: automatic refunds per account per day",
+      label:
+        "Daily limit per customer. The most one customer can get back automatically in one day.",
     },
     {
       key: "shopDaily",
-      label: "Shop daily limit: automatic refunds for the whole shop per day",
+      label:
+        "Daily limit for the shop. The most all customers together can get back automatically in one day.",
     },
   ] as const;
   return (
@@ -376,9 +402,9 @@ function Settings({
       <CardHeader>
         <CardTitle>Settings</CardTitle>
         <CardDescription>
-          In dollars, 0 or more. At 0, every refund in that category waits for a
-          person. A change applies to new requests only: waiting cases keep the
-          limits they were saved with.
+          Enter each limit in dollars. Use 0 or more. A limit of 0 sends every
+          refund of that kind to a person. A change applies only to new
+          requests. Refunds that are already waiting keep their old limits.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -418,23 +444,14 @@ function Settings({
   );
 }
 
-const RESULT_LABEL = {
-  refund: "Refunded",
-  refuse: "Refused",
-  review: "Sent to review",
-  approve: "Approved",
-  reject: "Rejected",
-} as const;
-
 function DecisionLog({ data }: { data: ConsoleData | null }) {
   return (
     <Card data-testid="decision-log">
       <CardHeader>
         <CardTitle>Decision log</CardTitle>
         <CardDescription>
-          Every decision, newest first. Limits are order / account per day /
-          shop per day, as they were at that moment. The message is exactly what
-          the customer saw.
+          Every decision, newest first. The limits are the ones that applied at
+          that moment. The last column shows the exact words the customer saw.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -450,9 +467,9 @@ function DecisionLog({ data }: { data: ConsoleData | null }) {
                 <TableHead className="w-32">Order</TableHead>
                 <TableHead className="w-24">Decision</TableHead>
                 <TableHead>Reasons</TableHead>
-                <TableHead className="w-32">Flags</TableHead>
-                <TableHead className="w-24">Limits then</TableHead>
-                <TableHead>Customer saw</TableHead>
+                <TableHead className="w-32">Warnings</TableHead>
+                <TableHead className="w-32">Limits at the time</TableHead>
+                <TableHead>What the customer saw</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -474,7 +491,7 @@ function DecisionLog({ data }: { data: ConsoleData | null }) {
                       {RESULT_LABEL[d.result]}
                     </span>
                     <br />
-                    {d.decidedBy === "code" ? "by the code" : "by a person"}
+                    {d.decidedBy === "code" ? "by the system" : "by a person"}
                   </TableCell>
                   <TableCell className="whitespace-normal">
                     <Reasons reasons={d.reasons} />
@@ -482,12 +499,12 @@ function DecisionLog({ data }: { data: ConsoleData | null }) {
                   <TableCell className="whitespace-normal">
                     <Flags flags={d.flags} />
                   </TableCell>
-                  <TableCell className="font-mono whitespace-normal">
-                    {usd(d.limits.orderCents)} order
+                  <TableCell className="whitespace-normal">
+                    {usd(d.limits.orderCents)} per order
                     <br />
-                    {usd(d.limits.accountDailyCents)} account
+                    {usd(d.limits.accountDailyCents)} per customer per day
                     <br />
-                    {usd(d.limits.shopDailyCents)} shop
+                    {usd(d.limits.shopDailyCents)} for the shop per day
                   </TableCell>
                   <TableCell className="whitespace-normal">
                     {d.customerMessage}
@@ -498,6 +515,76 @@ function DecisionLog({ data }: { data: ConsoleData | null }) {
           </Table>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Demo tools: only for testing, so they sit at the bottom of the console,
+ * folded away until someone opens them.
+ */
+function DemoTools({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible
+      data-testid="demo-tools"
+      open={open}
+      onOpenChange={setOpen}
+      className="space-y-4 rounded-xl border border-dashed p-4"
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm">
+            {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+            Demo tools
+          </Button>
+        </CollapsibleTrigger>
+        <p className="text-muted-foreground text-sm">
+          For testing only. Real customers and staff do not use these.
+        </p>
+      </div>
+      <CollapsibleContent className="space-y-6">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** Where the sample history shows up, moved here from the Suggestions panel. */
+function SampleHistory() {
+  const [counts, setCounts] = useState<{ band: string; count: number }[]>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { groups } = await getLearning();
+        // Each sample refund has at most one warning, so it is counted once.
+        setCounts(
+          groups
+            .map(({ band, groups: byFlag }) => ({
+              band: band.label,
+              count: byFlag.reduce((sum, g) => sum + g.sample, 0),
+            }))
+            .filter((c) => c.count > 0),
+        );
+      } catch {
+        setCounts([]);
+      }
+    })();
+  }, []);
+  return (
+    <Card data-testid="sample-history">
+      <CardHeader>
+        <CardTitle>Sample history</CardTitle>
+        <CardDescription>
+          The Suggestions panel also counts 12 made-up refunds from the account
+          &quot;Sample customer (sample)&quot;. They show how suggestions work.
+          The evaluator skips them.
+        </CardDescription>
+      </CardHeader>
+      {counts.length > 0 && (
+        <CardContent className="text-sm">
+          Sample refunds by price range:{" "}
+          {counts.map((c) => `${c.band}: ${c.count}.`).join(" ")}
+        </CardContent>
+      )}
     </Card>
   );
 }

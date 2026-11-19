@@ -266,6 +266,28 @@ describe("parseLimits (Settings)", () => {
 });
 
 describe("customerMessage", () => {
+  it("says the same thing for someone else's order and an order that doesn't exist", () => {
+    const notYours = decideRefund(
+      facts({ order: { ...facts().order!, accountId: "acct-jordan" } }),
+    );
+    const missing = decideRefund(facts({ orderId: "M-9999", order: null }));
+    const text = (id: string, d: typeof notYours) =>
+      customerMessage(
+        d.result,
+        { id, amountCents: d.amountCents },
+        d.reasons,
+        d.flags,
+      );
+    expect(text("M-1001", notYours)).toBe(
+      "I can't refund order M-1001. I can't find it on your account.",
+    );
+    expect(text("M-9999", missing)).toBe(
+      "I can't refund order M-9999. I can't find it on your account.",
+    );
+    // Staff still see the exact reason in the decision log.
+    expect(notYours.reasons).toEqual(["Order M-1001 is not on this account."]);
+  });
+
   it("never tells the customer why a case went to review", () => {
     const text = customerMessage(
       "review",

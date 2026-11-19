@@ -272,6 +272,7 @@ export async function requestRefund({
       decision.result,
       { id, amountCents: decision.amountCents },
       decision.reasons,
+      decision.flags,
     );
     const saved: { conflict: boolean; case_id?: number } = unwrap(
       await db().rpc("record_refund_case", {

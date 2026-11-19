@@ -138,7 +138,7 @@ export function decideRefund(facts: RefundFacts): Decision {
   if (accounts.size >= 2) {
     flags.push(FLAGS.sharedDevice);
     review.push(
-      `This device or IP asked for refunds on ${accounts.size} accounts today.`,
+      `This device or internet address asked for refunds on ${accounts.size} accounts today.`,
     );
   }
   if (facts.signals.country !== facts.homeCountry) {
@@ -167,11 +167,11 @@ export function decideRefund(facts: RefundFacts): Decision {
     );
   if (facts.accountAutoTodayCents + amount > limits.accountDailyCents)
     review.push(
-      `This account's automatic refunds today would be ${usd(facts.accountAutoTodayCents + amount)}, over the ${usd(limits.accountDailyCents)} limit.`,
+      `This customer's automatic refunds today would reach ${usd(facts.accountAutoTodayCents + amount)}. The daily limit per customer is ${usd(limits.accountDailyCents)}.`,
     );
   if (facts.shopAutoTodayCents + amount > limits.shopDailyCents)
     review.push(
-      `The shop's automatic refunds today would be ${usd(facts.shopAutoTodayCents + amount)}, over the ${usd(limits.shopDailyCents)} limit.`,
+      `The shop's automatic refunds today would reach ${usd(facts.shopAutoTodayCents + amount)}. The daily limit for the shop is ${usd(limits.shopDailyCents)}.`,
     );
 
   if (review.length > 0)
@@ -207,11 +207,16 @@ export function claimsApproval(text: string): boolean {
   return CLAIMED_APPROVAL.some((pattern) => pattern.test(text));
 }
 
-/** What the customer is told. The chat and the decision log show this same text. */
+/**
+ * What the customer is told. The chat and the decision log show this same
+ * text. Someone else's order and an order that doesn't exist get the same
+ * words, so the chat never shows whether another customer's order exists.
+ */
 export function customerMessage(
   result: Result | "approve" | "reject",
   order: { id: string; amountCents: number | null },
   reasons: string[] = [],
+  flags: string[] = [],
 ): string {
   const amount =
     order.amountCents === null ? "" : ` of ${usd(order.amountCents)}`;
@@ -219,6 +224,11 @@ export function customerMessage(
     case "refund":
       return `Your refund${amount} for order ${order.id} is done.`;
     case "refuse":
+      if (
+        flags.includes(FLAGS.notYourOrder) ||
+        flags.includes(FLAGS.noSuchOrder)
+      )
+        return `I can't refund order ${order.id}. I can't find it on your account.`;
       return `I can't refund order ${order.id}. ${reasons.join(" ")}`;
     case "review":
       return `Your refund request${amount} for order ${order.id} is waiting for a person on our team. I'll tell you here as soon as they decide.`;
@@ -247,8 +257,8 @@ export function parseLimits(input: {
     return Math.round(dollars * 100);
   };
   const order = toCents("Order limit", input.order);
-  const accountDaily = toCents("Account daily limit", input.accountDaily);
-  const shopDaily = toCents("Shop daily limit", input.shopDaily);
+  const accountDaily = toCents("Daily limit per customer", input.accountDaily);
+  const shopDaily = toCents("Daily limit for the shop", input.shopDaily);
   for (const value of [order, accountDaily, shopDaily])
     if (typeof value === "string") return { ok: false, error: value };
   return {
